@@ -195,7 +195,7 @@ async def on_message(message):
     if message.content == "!tickety":
 
         embed = discord.Embed(
-            title="🎫 System Ticketów",
+            title="🎫 Ticket",
             description="Kliknij przycisk aby otworzyć ticket.",
             color=discord.Color.green()
         )
@@ -213,3 +213,4 @@ keep_alive()
 TOKEN = os.getenv("TOKEN")
 
 client.run(TOKEN)
+
