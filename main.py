@@ -1,11 +1,13 @@
+import discord
+import os
+import asyncio
 from flask import Flask
 from threading import Thread
-import os
-import discord
 
 # =============================
-#         FLASK KEEP ALIVE
+#         FLASK 24/7
 # =============================
+
 app = Flask("")
 
 @app.route("/")
@@ -20,20 +22,20 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-
 # =============================
 #         INTENTY
 # =============================
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
 client = discord.Client(intents=intents)
 
+# =============================
+#       WERYFIKACJA
+# =============================
 
-# =============================
-#     PRZYCISK WERYFIKACJI
-# =============================
 class VerifyButton(discord.ui.View):
 
     def __init__(self):
@@ -50,113 +52,164 @@ class VerifyButton(discord.ui.View):
 
         if role is None:
             await interaction.response.send_message(
-                "❌ Nie znaleziono roli 'Zweryfikowany'!", ephemeral=True
-            )
+                "❌ Nie znaleziono roli Zweryfikowany", ephemeral=True)
             return
 
         await interaction.user.add_roles(role)
+
         await interaction.response.send_message(
-            "✅ Otrzymałeś rangę Zweryfikowany!", ephemeral=True
+            "✅ Otrzymałeś rangę!", ephemeral=True)
+
+# =============================
+#       ZAMYKANIE TICKETA
+# =============================
+
+class CloseTicketView(discord.ui.View):
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="🔒 Zamknij ticket",
+        style=discord.ButtonStyle.red,
+        custom_id="close_ticket"
+    )
+    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+        channel = interaction.channel
+        guild = interaction.guild
+
+        log_channel = discord.utils.get(guild.text_channels, name="ticket-logi")
+
+        if log_channel:
+
+            embed = discord.Embed(
+                title="📜 Ticket zamknięty",
+                description=f"Ticket: {channel.name}\nZamknięty przez: {interaction.user.mention}",
+                color=discord.Color.red()
+            )
+
+            await log_channel.send(embed=embed)
+
+        await interaction.response.send_message("Zamykanie ticketu...")
+
+        await asyncio.sleep(5)
+
+        await channel.delete()
+
+# =============================
+#        OTWIERANIE TICKETA
+# =============================
+
+class TicketView(discord.ui.View):
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="🎫 Otwórz ticket",
+        style=discord.ButtonStyle.green,
+        custom_id="open_ticket"
+    )
+    async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+        guild = interaction.guild
+        user = interaction.user
+
+        category = discord.utils.get(guild.categories, name="TICKETY")
+
+        if category is None:
+            category = await guild.create_category("TICKETY")
+
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            guild.me: discord.PermissionOverwrite(read_messages=True)
+        }
+
+        channel = await guild.create_text_channel(
+            name=f"ticket-{user.name}",
+            category=category,
+            overwrites=overwrites
         )
 
+        queen_role = discord.utils.get(guild.roles, name="Królowa")
+        los_role = discord.utils.get(guild.roles, name="Człowiek Łoś")
+
+        embed = discord.Embed(
+            title="🎫 Nowy Ticket",
+            description=f"{user.mention} opisz swój problem.\nAdministracja wkrótce pomoże.",
+            color=discord.Color.green()
+        )
+
+        embed.set_footer(text="Kliknij przycisk poniżej aby zamknąć ticket.")
+
+        await channel.send(
+            f"{queen_role.mention if queen_role else ''} {los_role.mention if los_role else ''}",
+            embed=embed,
+            view=CloseTicketView()
+        )
+
+        await interaction.response.send_message(
+            f"Ticket utworzony: {channel.mention}",
+            ephemeral=True
+        )
 
 # =============================
-#         BOT READY
+#        BOT READY
 # =============================
+
 @client.event
 async def on_ready():
     print(f"Zalogowano jako {client.user}")
     client.add_view(VerifyButton())
-
+    client.add_view(TicketView())
+    client.add_view(CloseTicketView())
 
 # =============================
-#         WIADOMOŚCI
+#        KOMENDY
 # =============================
+
 @client.event
 async def on_message(message):
 
     if message.author.bot:
         return
 
+    # PING
     if message.content == "!ping":
         await message.channel.send("🏓 Pong!")
 
+    # REGULAMIN
     if message.content == "!regulamin":
 
-        text = (
-            "🐶 ASIOR – 𝙎𝙆𝙔𝙂𝙀𝙉\n\n"
-            "╔═══════ ✦ 𝐀𝐊𝐓𝐘𝐖𝐍𝐎𝐒́𝐂 ✦ ═══════╗\n"
-            "➤ Aktywność minimum co 2–3 dni.\n"
-            "➤ Dłuższa nieobecność musi być zgłoszona.\n"
-            "➤ Brak aktywności bez informacji = możliwe usunięcie.\n"
-            "➤ Każdy rozwija generator i wspiera klan.\n"
-            "╚════════════════════════════╝\n\n"
-            "╔═══════ ✦ 𝐙𝐀𝐂𝐇𝐎𝐖𝐀𝐍𝐈𝐄 ✦ ═══════╗\n"
-            "➤ Kultura i szacunek wobec wszystkich.\n"
-            "➤ Zakaz wyzywania, prowokacji i dram.\n"
-            "➤ Zakaz wynoszenia informacji o klanie.\n"
-            "➤ Reprezentujemy klan z klasą.\n"
-            "╚════════════════════════════╝\n\n"
-            "╔════════ ✦ 𝐊𝐀𝐑𝐘 ✦ ════════╗\n"
-            "➤ ① Ostrzeżenie\n"
-            "➤ ② Degradacja\n"
-            "➤ ③ Wyrzucenie z klanu\n"
-            "➤ Poważne przewinienia = natychmiastowe usunięcie.\n"
-            "╚════════════════════════════╝"
-        )
-
         embed = discord.Embed(
-            title="📜 Regulamin – Zasady Gita",
-            description=text,
-            color=discord.Color.gold(),
-        )
-
-        embed.set_footer(
-            text="Kanał: #regulamin • Przestrzeganie zasad jest obowiązkowe"
+            title="📜 Regulamin",
+            description="Kliknij przycisk aby się zweryfikować.",
+            color=discord.Color.gold()
         )
 
         await message.channel.send(embed=embed, view=VerifyButton())
 
-    if message.content.startswith("!clear"):
-        if not message.author.guild_permissions.manage_messages:
-            await message.channel.send("❌ Nie masz uprawnień!")
-            return
-        try:
-            amount = int(message.content.split()[1])
-            await message.channel.purge(limit=amount + 1)
-        except:
-            await message.channel.send("❗ Użycie: !clear <ilość>")
+    # PANEL TICKETÓW
+    if message.content == "!tickety":
 
-    if message.content.startswith("!kick"):
-        if message.author.guild_permissions.kick_members and message.mentions:
-            user = message.mentions[0]
-            await user.kick(reason="Kick admina")
-            await message.channel.send(f"👢 {user} został wyrzucony")
-
-    if message.content.startswith("!ban"):
-        if message.author.guild_permissions.ban_members and message.mentions:
-            user = message.mentions[0]
-            await user.ban(reason="Ban admina")
-            await message.channel.send(f"🔨 {user} został zbanowany")
-
-    if message.content.startswith("!say"):
-        if message.author.guild_permissions.administrator:
-            text = message.content[5:]
-            if text:
-                embed = discord.Embed(description=text, color=discord.Color.orange())
-                await message.channel.send(embed=embed)
-                await message.delete()
-
-    if "ticket" in message.content.lower():
-        await message.channel.send(
-            "Czy ja usłyszałem ticket czy ktoś chce się na kogoś rozjebać?!"
+        embed = discord.Embed(
+            title="🎫 System Ticketów",
+            description="Kliknij przycisk aby otworzyć ticket.",
+            color=discord.Color.green()
         )
 
+        embed.set_footer(text="Administracja odpowie najszybciej jak to możliwe.")
+
+        await message.channel.send(embed=embed, view=TicketView())
 
 # =============================
-#       URUCHOMIENIE BOTA
+#       START BOTA
 # =============================
+
 keep_alive()
 
 TOKEN = os.getenv("TOKEN")
+
 client.run(TOKEN)
