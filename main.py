@@ -82,10 +82,8 @@ class CloseTicketView(discord.ui.View):
         queen_role = discord.utils.get(guild.roles, name="Królowa")
         los_role = discord.utils.get(guild.roles, name="Człowiek Łoś")
 
-        # zabieramy dostęp wszystkim
         await channel.set_permissions(guild.default_role, read_messages=False)
 
-        # dajemy dostęp administracji
         if queen_role:
             await channel.set_permissions(queen_role, read_messages=True)
 
@@ -99,8 +97,9 @@ class CloseTicketView(discord.ui.View):
         )
 
         await interaction.response.send_message(embed=embed)
+
 # =============================
-#        OTWIERANIE TICKETA
+#       OTWIERANIE TICKETA
 # =============================
 
 class TicketView(discord.ui.View):
@@ -117,6 +116,15 @@ class TicketView(discord.ui.View):
 
         guild = interaction.guild
         user = interaction.user
+
+        # sprawdzenie czy ticket już istnieje
+        for channel in guild.text_channels:
+            if channel.name == f"ticket-{user.name}":
+                await interaction.response.send_message(
+                    f"❌ Masz już otwarty ticket: {channel.mention}",
+                    ephemeral=True
+                )
+                return
 
         category = discord.utils.get(guild.categories, name="TICKETY")
 
@@ -178,11 +186,9 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    # PING
     if message.content == "!ping":
         await message.channel.send("🏓 Pong!")
 
-    # REGULAMIN
     if message.content == "!regulamin":
 
         embed = discord.Embed(
@@ -193,7 +199,6 @@ async def on_message(message):
 
         await message.channel.send(embed=embed, view=VerifyButton())
 
-    # PANEL TICKETÓW
     if message.content == "!tickety":
 
         embed = discord.Embed(
@@ -215,5 +220,3 @@ keep_alive()
 TOKEN = os.getenv("TOKEN")
 
 client.run(TOKEN)
-
-
