@@ -1,7 +1,5 @@
 import discord
 import os
-import asyncio
-import yt_dlp
 from flask import Flask
 from threading import Thread
 
@@ -34,61 +32,6 @@ intents.members = True
 client = discord.Client(intents=intents)
 
 # =============================
-#         MUZYKA
-# =============================
-
-YDL_OPTIONS = {
-    "format": "bestaudio",
-    "noplaylist": True
-}
-
-FFMPEG_OPTIONS = {
-    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-    "options": "-vn"
-}
-
-async def play_music(message, query):
-
-    voice = discord.utils.get(client.voice_clients, guild=message.guild)
-
-    if not message.author.voice:
-        await message.channel.send("❌ Musisz być na kanale głosowym!")
-        return
-
-    if not voice:
-        voice = await message.author.voice.channel.connect()
-
-    # usuwa playlist parametry z youtube
-    if "youtube.com/watch" in query and "&" in query:
-        query = query.split("&")[0]
-
-    if "http" not in query:
-        query = f"ytsearch:{query}"
-
-    try:
-
-        with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-            info = ydl.extract_info(query, download=False)
-
-            if "entries" in info:
-                info = info["entries"][0]
-
-            url2 = info["url"]
-            title = info["title"]
-
-        if voice.is_playing():
-            voice.stop()
-
-        source = discord.FFmpegPCMAudio(url2, **FFMPEG_OPTIONS)
-
-        voice.play(source)
-
-        await message.channel.send(f"🎵 Teraz gra: **{title}**")
-
-    except Exception as e:
-        await message.channel.send(f"❌ Błąd odtwarzania: {e}")
-
-# =============================
 #       WERYFIKACJA
 # =============================
 
@@ -107,12 +50,18 @@ class VerifyButton(discord.ui.View):
         role = discord.utils.get(interaction.guild.roles, name="Zweryfikowany")
 
         if role is None:
-            await interaction.response.send_message("❌ Nie znaleziono roli!", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ Nie znaleziono roli Zweryfikowany",
+                ephemeral=True
+            )
             return
 
         await interaction.user.add_roles(role)
 
-        await interaction.response.send_message("✅ Zweryfikowano!", ephemeral=True)
+        await interaction.response.send_message(
+            "✅ Zostałeś zweryfikowany!",
+            ephemeral=True
+        )
 
 # =============================
 #       ZAMYKANIE TICKETA
@@ -146,7 +95,7 @@ class CloseTicketView(discord.ui.View):
 
         embed = discord.Embed(
             title="🔒 Ticket zamknięty",
-            description="Ticket został zamknięty. Widzi go tylko administracja.",
+            description="Ticket został zamknięty.\nWidzą go tylko role administracji.",
             color=discord.Color.red()
         )
 
@@ -201,7 +150,7 @@ class TicketView(discord.ui.View):
 
         embed = discord.Embed(
             title="🎫 Nowy Ticket",
-            description=f"{user.mention} opisz swój problem.",
+            description=f"{user.mention} opisz swój problem.\nAdministracja zaraz pomoże.",
             color=discord.Color.green()
         )
 
@@ -223,6 +172,7 @@ class TicketView(discord.ui.View):
 @client.event
 async def on_ready():
     print(f"Zalogowano jako {client.user}")
+
     client.add_view(VerifyButton())
     client.add_view(TicketView())
     client.add_view(CloseTicketView())
@@ -237,19 +187,18 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    if message.content == "!ping":
-        await message.channel.send("🏓 Pong!")
-
+    # regulamin
     if message.content == "!regulamin":
 
         embed = discord.Embed(
             title="📜 Regulamin",
-            description="Kliknij aby się zweryfikować.",
+            description="Kliknij przycisk poniżej aby się zweryfikować.",
             color=discord.Color.gold()
         )
 
         await message.channel.send(embed=embed, view=VerifyButton())
 
+    # panel ticketów
     if message.content == "!tickety":
 
         embed = discord.Embed(
@@ -259,40 +208,6 @@ async def on_message(message):
         )
 
         await message.channel.send(embed=embed, view=TicketView())
-
-    if message.content.startswith("!play"):
-
-        query = message.content[6:].strip()
-
-        if not query:
-            await message.channel.send("Podaj link lub nazwę piosenki.")
-            return
-
-        await play_music(message, query)
-
-    if message.content == "!skip":
-
-        voice = discord.utils.get(client.voice_clients, guild=message.guild)
-
-        if voice:
-            voice.stop()
-            await message.channel.send("⏭️ Pominięto piosenkę")
-
-    if message.content == "!stop":
-
-        voice = discord.utils.get(client.voice_clients, guild=message.guild)
-
-        if voice:
-            voice.stop()
-            await message.channel.send("⏹️ Zatrzymano muzykę")
-
-    if message.content == "!leave":
-
-        voice = discord.utils.get(client.voice_clients, guild=message.guild)
-
-        if voice:
-            await voice.disconnect()
-            await message.channel.send("👋 Wyszedłem z kanału")
 
 # =============================
 #       START BOTA
