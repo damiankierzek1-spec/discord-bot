@@ -79,24 +79,26 @@ class CloseTicketView(discord.ui.View):
         channel = interaction.channel
         guild = interaction.guild
 
-        log_channel = discord.utils.get(guild.text_channels, name="ticket-logi")
+        queen_role = discord.utils.get(guild.roles, name="Królowa")
+        los_role = discord.utils.get(guild.roles, name="Człowiek Łoś")
 
-        if log_channel:
+        # zabieramy dostęp wszystkim
+        await channel.set_permissions(guild.default_role, read_messages=False)
 
-            embed = discord.Embed(
-                title="📜 Ticket zamknięty",
-                description=f"Ticket: {channel.name}\nZamknięty przez: {interaction.user.mention}",
-                color=discord.Color.red()
-            )
+        # dajemy dostęp administracji
+        if queen_role:
+            await channel.set_permissions(queen_role, read_messages=True)
 
-            await log_channel.send(embed=embed)
+        if los_role:
+            await channel.set_permissions(los_role, read_messages=True)
 
-        await interaction.response.send_message("Zamykanie ticketu...")
+        embed = discord.Embed(
+            title="🔒 Ticket zamknięty",
+            description="Ticket został zamknięty.\nDostęp ma tylko administracja.",
+            color=discord.Color.red()
+        )
 
-        await asyncio.sleep(5)
-
-        await channel.delete()
-
+        await interaction.response.send_message(embed=embed)
 # =============================
 #        OTWIERANIE TICKETA
 # =============================
@@ -213,4 +215,5 @@ keep_alive()
 TOKEN = os.getenv("TOKEN")
 
 client.run(TOKEN)
+
 
