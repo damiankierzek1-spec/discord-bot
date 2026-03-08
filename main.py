@@ -38,41 +38,55 @@ client = discord.Client(intents=intents)
 # =============================
 
 YDL_OPTIONS = {
-    'format': 'bestaudio',
-    'noplaylist': True
+    "format": "bestaudio",
+    "noplaylist": True
 }
 
 FFMPEG_OPTIONS = {
-    'options': '-vn'
+    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+    "options": "-vn"
 }
 
 async def play_music(message, query):
 
     voice = discord.utils.get(client.voice_clients, guild=message.guild)
 
+    if not message.author.voice:
+        await message.channel.send("❌ Musisz być na kanale głosowym!")
+        return
+
     if not voice:
-        if message.author.voice:
-            voice = await message.author.voice.channel.connect()
-        else:
-            await message.channel.send("❌ Musisz być na kanale głosowym!")
-            return
+        voice = await message.author.voice.channel.connect()
+
+    # usuwa playlist parametry z youtube
+    if "youtube.com/watch" in query and "&" in query:
+        query = query.split("&")[0]
 
     if "http" not in query:
         query = f"ytsearch:{query}"
 
-    with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-        info = ydl.extract_info(query, download=False)
+    try:
 
-        if "entries" in info:
-            info = info["entries"][0]
+        with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+            info = ydl.extract_info(query, download=False)
 
-        url2 = info['url']
-        title = info['title']
+            if "entries" in info:
+                info = info["entries"][0]
 
-    voice.stop()
-    voice.play(discord.FFmpegPCMAudio(url2, **FFMPEG_OPTIONS))
+            url2 = info["url"]
+            title = info["title"]
 
-    await message.channel.send(f"🎵 Teraz gra: **{title}**")
+        if voice.is_playing():
+            voice.stop()
+
+        source = discord.FFmpegPCMAudio(url2, **FFMPEG_OPTIONS)
+
+        voice.play(source)
+
+        await message.channel.send(f"🎵 Teraz gra: **{title}**")
+
+    except Exception as e:
+        await message.channel.send(f"❌ Błąd odtwarzania: {e}")
 
 # =============================
 #       WERYFIKACJA
@@ -97,6 +111,7 @@ class VerifyButton(discord.ui.View):
             return
 
         await interaction.user.add_roles(role)
+
         await interaction.response.send_message("✅ Zweryfikowano!", ephemeral=True)
 
 # =============================
@@ -247,7 +262,7 @@ async def on_message(message):
 
     if message.content.startswith("!play"):
 
-        query = message.content[6:]
+        query = message.content[6:].strip()
 
         if not query:
             await message.channel.send("Podaj link lub nazwę piosenki.")
