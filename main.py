@@ -105,6 +105,38 @@ class MyBot(discord.Client):
 
         TWOJE_ID_DISCORD = 652507356105539585 
 
+        # === KOMENDA !pomoc (LISTA KOMEND) ===
+        if message.content == "!pomoc":
+            if message.author.id != TWOJE_ID_DISCORD:
+                return
+
+            embed = discord.Embed(
+                title="⚙️ Panel Zarządzania Botem",
+                description="Oto szybka ściągawka z komend. Pamiętaj, żeby przy rangach i osobach używać oznaczeń (`@`), żeby bot się nie pomylił.",
+                color=discord.Color.dark_gold()
+            )
+            
+            embed.add_field(
+                name="📩 System Ticketów", 
+                value="`!ticket` — Wrzuca na kanał kartę z przyciskiem do otwierania zgłoszeń.", 
+                inline=False
+            )
+            embed.add_field(
+                name="👤 Rangi dla jednej osoby", 
+                value="`!rola @osoba @ranga` — Daje rangę wybranemu graczowi.\n`!usunrola @osoba @ranga` — Zabiera rangę wybranemu graczowi.", 
+                inline=False
+            )
+            embed.add_field(
+                name="👥 Masowe zarządzanie (Wszyscy)", 
+                value="`!rola-wszyscy @ranga` — Daje rangę każdemu na serwerze naraz.\n`!usunrola-wszyscy @ranga` — Zabiera rangę każdemu na serwerze naraz.", 
+                inline=False
+            )
+            
+            embed.set_footer(text="Dostęp do tych komend masz tylko Ty.")
+            
+            await message.channel.send(embed=embed)
+            await message.delete()
+
         # === KOMENDA DO TICKETÓW ===
         if message.content == "!ticket":
             if message.author.id != TWOJE_ID_DISCORD:
@@ -123,7 +155,6 @@ class MyBot(discord.Client):
             if message.author.id != TWOJE_ID_DISCORD:
                 return
 
-            # Oczekujemy formatu: !rola @Użytkownik NazwaRangi
             content_clean = message.content[6:].strip()
             if not message.mentions:
                 await message.channel.send("❌ Musisz oznaczyć użytkownika! Przykład: `!rola @Kuba @Ranga`")
@@ -132,9 +163,7 @@ class MyBot(discord.Client):
             target_user = message.mentions[0]
             guild = message.guild
 
-            # Ustalamy nazwę roli (odcinamy oznaczenie użytkownika z wiadomości)
             role_part = content_clean.replace(target_user.mention, "").strip()
-            # Czasami wzmianka ma format <@!ID> zamiast <@ID>
             role_part = role_part.replace(f"<@!{target_user.id}>", "").strip()
             role_part = role_part.replace(f"<@{target_user.id}>", "").strip()
 
@@ -202,7 +231,7 @@ class MyBot(discord.Client):
 
             args = message.content.split(" ", 1)
             if len(args) < 2:
-                await message.channel.send("Musisz podać nazwę rangi! Przykład: `!rola-wszyscy @Ranga` lub `!rola-wszyscy Nazwa`")
+                await message.channel.send("Musisz podać nazwę rangi! Przykład: `!rola-wszyscy @Ranga`")
                 return
 
             role_query = args[1].strip()
@@ -250,7 +279,7 @@ class MyBot(discord.Client):
 
             args = message.content.split(" ", 1)
             if len(args) < 2:
-                await message.channel.send("Musisz podać nazwę rangi! Przykład: `!usunrola-wszyscy @Ranga` lub `!usunrola-wszyscy Nazwa`")
+                await message.channel.send("Musisz podać nazwę rangi! Przykład: `!usunrola-wszyscy @Ranga`")
                 return
 
             role_query = args[1].strip()
