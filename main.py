@@ -20,9 +20,6 @@ def keep_alive():
     t = Thread(target=run_web_server)
     t.start()
 
-# ---------------------
-# ANKIETY
-# ---------------------
 class PollModal(discord.ui.Modal, title="📊 Tworzenie nowej ankiety"):
     pytanie = discord.ui.TextInput(label="Wpisz pytanie ankiety", placeholder="np. Gramy dzisiaj w turniej?", max_length=256, required=True, style=discord.TextStyle.short)
     opcja_a = discord.ui.TextInput(label="Opcja A", placeholder="np. Tak, jasne! 🔥", max_length=100, required=True, style=discord.TextStyle.short)
@@ -101,9 +98,7 @@ class StartPollView(discord.ui.View):
             return
         await interaction.response.send_modal(PollModal())
 
-# ---------------------
-# TICKET SYSTEM
-# ---------------------
+
 class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
     temat = discord.ui.TextInput(label="Podaj temat zgłoszenia", placeholder="np. Błąd na serwerze / Pytanie...", max_length=100, required=True, style=discord.TextStyle.short)
     opis = discord.ui.TextInput(label="Opisz krótko swoją sprawę", placeholder="Napisz tutaj, w czym możemy Ci pomóc...", style=discord.TextStyle.long, max_length=1000, required=True)
@@ -257,13 +252,11 @@ class FeedbackView(discord.ui.View):
     async def star5(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_rating(interaction, "⭐⭐⭐⭐⭐ (5/5)")
 
-# ---------------------
-# BOT
-# ---------------------
+
 class MyBot(discord.Client):
     async def on_ready(self):
         print(f'Logged on as {self.user}!')
-        # rejestrujemy persistent views (przy restarcie trzeba je dodać ponownie)
+        
         self.add_view(TicketButton())
         self.add_view(TicketControlView())
         self.add_view(StartPollView())
@@ -290,7 +283,7 @@ class MyBot(discord.Client):
 
         ADMIN_IDS = [652507356105539585, 550959315700154368, 590215623259193371]
 
-        # ---- pomoc (odświeżona)
+        
         if message.content == "!pomoc":
             if message.author.id not in ADMIN_IDS:
                 return
@@ -309,7 +302,7 @@ class MyBot(discord.Client):
             await message.delete()
             return
 
-        # ---- ankieta panel
+        
         if message.content == "!ankieta":
             if message.author.id not in ADMIN_IDS:
                 return
@@ -318,7 +311,7 @@ class MyBot(discord.Client):
             await message.delete()
             return
 
-        # ---- ticket panel
+        
         if message.content == "!ticket":
             if message.author.id not in ADMIN_IDS:
                 return
@@ -327,7 +320,7 @@ class MyBot(discord.Client):
             await message.delete()
             return
 
-        # ---- role pojedyncze
+        
         if message.content.startswith("!rola "):
             if message.author.id not in ADMIN_IDS:
                 return
@@ -354,7 +347,7 @@ class MyBot(discord.Client):
                 await message.channel.send("❌ Brak uprawnień.")
             return
 
-        # ---- usun ranga pojedyncza
+        
         if message.content.startswith("!usunrola "):
             if message.author.id not in ADMIN_IDS:
                 return
@@ -381,7 +374,7 @@ class MyBot(discord.Client):
                 await message.channel.send("❌ Brak uprawnień.")
             return
 
-        # ---- masowe dodawanie ról
+        
         if message.content.startswith("!rola-wszyscy"):
             if message.author.id not in ADMIN_IDS:
                 return
@@ -417,7 +410,7 @@ class MyBot(discord.Client):
             await status_message.edit(content=f"✨ Zakończono! Dodano rangę **{role.name}** dla {success_count} osób.")
             return
 
-        # ---- masowe usuwanie ról
+        
         if message.content.startswith("!usunrola-wszyscy"):
             if message.author.id not in ADMIN_IDS:
                 return
@@ -453,7 +446,7 @@ class MyBot(discord.Client):
             await status_message.edit(content=f"❌ Zakończono! Odebrano rangę **{role.name}** {success_count} użytkownikom.")
             return
 
-        # ---- TESTY KANAŁÓW POWITALNYCH / POŻEGNALNYCH
+        
         if message.content == "!test-przyloty":
             if message.author.id not in ADMIN_IDS:
                 return
@@ -485,7 +478,7 @@ class MyBot(discord.Client):
         if message.content == "!test-witamy":
             if message.author.id not in ADMIN_IDS:
                 return
-            # wyślij oba testy
+           
             ch1 = discord.utils.get(message.guild.text_channels, name="⌊przyloty⌉⌊🌆⌉")
             ch2 = discord.utils.get(message.guild.text_channels, name="⌊odloty⌉⌊🌇⌉")
             if ch1:
@@ -498,7 +491,7 @@ class MyBot(discord.Client):
             await message.delete()
             return
 
-# --- intents i start
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
