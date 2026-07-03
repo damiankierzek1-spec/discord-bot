@@ -17,7 +17,7 @@ def keep_alive():
     t = Thread(target=run_web_server)
     t.start()
 
-# === KLASA PRZYCISKU DO OTWIERANIA TICKETÓW ===
+
 class TicketButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None) 
@@ -31,7 +31,7 @@ class TicketButton(discord.ui.View):
         
         existing_channel = discord.utils.get(guild.text_channels, name=channel_name)
         if existing_channel:
-            await interaction.response.send_message(f"Masz już otwarty ticket! Idź do: {existing_channel.mention}", ephemeral=True)
+            await interaction.response.send_message(f"Ticket został utworzony! Przejdź do: {existing_channel.mention}", ephemeral=True)
             return
 
         overwrites = {
@@ -55,19 +55,43 @@ class TicketButton(discord.ui.View):
         await ticket_channel.send(embed=embed, view=CloseTicketButton())
         await interaction.response.send_message(f"Pomyślnie stworzono ticket! Kliknij tutaj: {ticket_channel.mention}", ephemeral=True)
 
-# === KLASA PRZYCISKU DO ZAMYKANIA TICKETÓW ===
+
 class CloseTicketButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(label="Zamknij Ticket 🔒", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn")
     async def button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Ten kanał zostanie usunięty za 5 sekund...")
-        import asyncio
-        await asyncio.sleep(5)
-        await interaction.channel.delete()
+        guild = interaction.guild
+        channel = interaction.channel
+        
+        TWOJE_ID_DISCORD = 652507356105539585 
+        
+        await interaction.response.send_message("Archiwizowanie i zamykanie ticketu...", ephemeral=False)
+        
+        owner = guild.get_member(TWOJE_ID_DISCORD)
+        
+        new_overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        }
+        
+        if owner:
+            new_overwrites[owner] = discord.PermissionOverwrite(read_messages=True, send_messages=True, read_message_history=True)
+            
+        await channel.edit(overwrites=new_overwrites)
+        
+        new_name = channel.name.replace("ticket-", "zamkniety-")
+        await channel.edit(name=new_name)
+        
+        closed_embed = discord.Embed(
+            title="🔒 Ticket Zamknięty",
+            description=f"Ten ticket został zamknięty przez {interaction.user.mention} i przeniesiony do Twojego archiwum. Tylko Ty go teraz widzisz.",
+            color=discord.Color.red()
+        )
+        await channel.send(embed=closed_embed)
 
-# === GŁÓWNA KLASA BOTA ===
+
 class MyBot(discord.Client):
     async def on_ready(self):
         print(f'Logged on as {self.user}!')
@@ -78,19 +102,15 @@ class MyBot(discord.Client):
         if message.author == self.user:
             return
 
-        # Komenda !ticket
         if message.content == "!ticket":
-            
-            # Twoje unikalne ID Discord
             TWOJE_ID_DISCORD = 652507356105539585 
             
-            # Sprawdzanie, czy osoba używająca komendy to Ty
             if message.author.id != TWOJE_ID_DISCORD:
                 return
                 
             embed = discord.Embed(
-                title="📩 Centrum Zgłoszeń (Tickets)",
-                description="Potrzebujesz pomocy administracji? Chcesz zgłosić błąd lub gracza?\n\nKliknij przycisk poniżej, aby otworzyć prywatny kanał dyskusyjny z załogą serwera.",
+                title="📩 ticket",
+                description="Potrzebujesz pomocy administracji? Chcesz zgłosić błąd lub osobe?\n\nKliknij przycisk poniżej, aby otworzyć prywatny kanał z adminsitracją serwera.",
                 color=discord.Color.blue()
             )
             await message.channel.send(embed=embed, view=TicketButton())
