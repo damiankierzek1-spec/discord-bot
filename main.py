@@ -1,58 +1,9 @@
 import discord
 import os
-import xml.etree.ElementTree as ET
-from flask import Flask, request
+from flask import Flask
 from threading import Thread
 
 app = Flask('')
-
-# Pamięć podręczna na ID filmów, żeby bot nie wysyłał spamu (duplikatów)
-PROCESSED_VIDEOS = set()
-
-# Weryfikacja subskrypcji od Google (wymagana przez YouTube)
-@app.route('/youtube', methods=['GET'])
-def youtube_verify():
-    challenge = request.args.get('hub.challenge')
-    if challenge:
-        return challenge, 200
-    return "Brak challenge", 400
-
-# Odbieranie powiadomienia o nowym filmie z YouTube
-@app.route('/youtube', methods=['POST'])
-def youtube_webhook():
-    try:
-        xml_data = request.data
-        root = ET.fromstring(xml_data)
-        
-        # Przestrzenie nazw w pliku XML od YT
-        namespaces = {
-            'atom': 'http://www.w3.org/2005/Atom',
-            'yt': 'http://www.youtube.com/xml/schemas/2015'
-        }
-        
-        entry = root.find('atom:entry', namespaces)
-        if entry is not None:
-            video_id = entry.find('yt:videoId', namespaces).text
-            title = entry.find('atom:title', namespaces).text
-            link = entry.find('atom:link', namespaces).attrib['href']
-            
-            # Sprawdzamy, czy film nie był już wysłany
-            if video_id not in PROCESSED_VIDEOS:
-                PROCESSED_VIDEOS.add(video_id)
-                
-                # Wysyłamy powiadomienie na Discordzie przez bota
-                if client.is_ready():
-                    channel = client.get_channel(DISCORD_CHANNEL_ID)
-                    if channel:
-                        # Treść wiadomości wysyłanej na Discordzie
-                        msg = f"🚀 **Nowy film na kanale!** \n🎬 **{title}**\n👉 Oglądaj tutaj: {link}"
-                        client.loop.create_task(channel.send(msg))
-                        print(f"Wysłano powiadomienie o filmie: {title}")
-                        
-    except Exception as e:
-        print(f"Błąd podczas odbierania danych z YT: {e}")
-        
-    return "Odebrano", 200
 
 @app.route('/')
 def home():
@@ -66,23 +17,95 @@ def keep_alive():
     t = Thread(target=run_web_server)
     t.start()
 
-class Client(discord.Client):
+# === KLASA PRZYCISKU DO OTWIERANIA TICKETÓW ===
+class TicketButton(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None) # Przycisk działa na stałe, nawet po restarcie bota
+
+    @discord.ui.button(label="Stwórz Ticket ✉️", style=discord.ButtonStyle.primary, custom_id="create_ticket_btn")
+    async def button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        member = interaction.user
+        
+        # Nazwa nowego kanału ticketu
+        channel_name = f"ticket-{member.name}"
+        
+        # Sprawdzamy, czy taki kanał już przypadkiem nie istnieje
+        existing_channel = discord.utils.get(guild.text_channels, name=channel_name)
+        if existing_channel:
+            await interaction.response.send_message(f"Masz już otwarty ticket! Idź do: {existing_channel.mention}", ephemeral=True)
+            return
+
+        # Uprawnienia: nikt nie widzi kanału oprócz administracji i osoby otwierającej ticket
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            member: discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True, attach_files=True),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        }
+        
+        # Jeśli masz specjalną rolę dla adminów (np. "Admin" lub "Moderator"), bot automatycznie da im dostęp
+        # Możesz podmienić nazwę roli poniżej, jeśli masz inną na serwerze:
+        admin_role = discord.utils.get(guild.roles, name="Admin")
+        if admin_role:
+            overwrites[admin_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+        # Tworzenie kanału
+        ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
+        
+        # Wiadomość powitalna w nowym tickecie z przyciskiem do zamykania go
+        embed = discord.Embed(
+            title="🎫 Nowe Zgłoszenie",
+            description=f"Witaj {member.mention}! Opisz tutaj swój problem, a administracja odpowie tak szybko, jak to możliwe.\n\nAby zamknąć to zgłoszenie, kliknij przycisk poniżej.",
+            color=discord.Color.green()
+        )
+        
+        await ticket_channel.send(embed=embed, view=CloseTicketButton())
+        await interaction.response.send_message(f"Pomyślnie stworzono ticket! Kliknij tutaj: {ticket_channel.mention}", ephemeral=True)
+
+# === KLASA PRZYCISKU DO ZAMYKANIA TICKETÓW ===
+class CloseTicketButton(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Zamknij Ticket 🔒", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn")
+    async def button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("Ten kanał zostanie usunięty za 5 sekund...")
+        import asyncio
+        await asyncio.sleep(5)
+        await interaction.channel.delete()
+
+# === GŁÓWNA KLASA BOTA ===
+class MyBot(discord.Client):
     async def on_ready(self):
         print(f'Logged on as {self.user}!')
+        # Rejestrujemy przyciski, żeby bot pamiętał o nich po restartach hostingu
+        self.add_view(TicketButton())
+        self.add_view(CloseTicketButton())
+
+    async def on_message(self, message):
+        # Ignoruj wiadomości bota
+        if message.author == self.user:
+            return
+
+        # Komenda do wysłania panelu ticketów (tylko dla osób z uprawnieniami administratora)
+        if message.content == "!setup-tickety":
+            if not message.author.guild_permissions.administrator:
+                await message.channel.send("Nie masz uprawnień administratora, aby to zrobić!")
+                return
+                
+            embed = discord.Embed(
+                title="📩 Centrum Zgłoszeń (Tickets)",
+                description="Potrzebujesz pomocy administracji? Chcesz zgłosić błąd lub gracza?\n\nKliknij przycisk poniżej, aby otworzyć prywatny kanał dyskusyjny z załogą serwera.",
+                color=discord.Color.blue()
+            )
+            await message.channel.send(embed=embed, view=TicketButton())
+            await message.delete() # Usuwa komendę użytkownika, żeby był porządek
 
 intents = discord.Intents.default()
 intents.message_content = True
-client = Client(intents=intents)
+client = MyBot(intents=intents)
 
 if __name__ == "__main__":
     keep_alive()
-    
-    # === KONFIGURACJA KANAŁÓW ===
-    # 1. Wklej TUTAJ ID swojego kanału tekstowego na Discordzie (same cyfry, bez cudzysłowu!)
-    DISCORD_CHANNEL_ID = 1047814798978592788  
-    
-    # 2. ID Twojego kanału YouTube (zostaw tak jak jest, już wyciągnięte!)
-    YT_CHANNEL_ID = 'UCm1fX1O8H1jG5rFq4_o-0xw'
-    
     TOKEN = os.environ.get("DISCORD_TOKEN")
     client.run(TOKEN)
