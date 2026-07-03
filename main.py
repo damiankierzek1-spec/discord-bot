@@ -3,6 +3,8 @@ import os
 from flask import Flask
 from threading import Thread
 import asyncio
+from io import BytesIO
+from datetime import datetime
 
 app = Flask('')
 
@@ -21,7 +23,6 @@ def keep_alive():
 
 # === FORMULARZ WYSKAKUJĄCY W OKIENKU (MODAL) ===
 class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
-    # Pierwsze pole: Temat
     temat = discord.ui.TextInput(
         label="Podaj temat zgłoszenia",
         placeholder="np. Błąd na serwerze / Pytanie...",
@@ -30,7 +31,6 @@ class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
         style=discord.TextStyle.short
     )
     
-    # Drugie pole: Opis
     opis = discord.ui.TextInput(
         label="Opisz krótko swoją sprawę",
         placeholder="Napisz tutaj, w czym możemy Ci pomóc...",
@@ -62,7 +62,6 @@ class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
 
         ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
         
-        # Tworzymy embed powitalny w nowym kanale, pokazujący dane z formularza
         embed = discord.Embed(
             title="🎫 Nowe Zgłoszenie użytkownika",
             description=f"Witaj {member.mention}! Administracja została powiadomiona o Twoim zgłoszeniu. Odpowiemy tak szybko, jak to możliwe.\n\nAby zamknąć to zgłoszenie, kliknij przycisk poniżej.",
@@ -82,11 +81,10 @@ class TicketButton(discord.ui.View):
 
     @discord.ui.button(label="Stwórz Ticket ✉️", style=discord.ButtonStyle.primary, custom_id="create_ticket_btn")
     async def button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Wyświetlamy użytkownikowi wyskakujące okienko z formularzem
         await interaction.response.send_modal(TicketModal())
 
 
-# === PRZYCISK ZAMYKANIA TICKETU ===
+# === PRZYCISK ZAMYKANIA TICKETU + TRANSKRYPCJA ===
 class CloseTicketButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -96,34 +94,47 @@ class CloseTicketButton(discord.ui.View):
         guild = interaction.guild
         channel = interaction.channel
         
-        TWOJE_ID_DISCORD = 652507356105539585 
+        await interaction.response.send_message("Generowanie transkrypcji i zamykanie ticketu...", ephemeral=False)
         
-        await interaction.response.send_message("Archiwizowanie i zamykanie ticketu...", ephemeral=False)
+        # --- GENEROWANIE LOGU Z ROZMOWY ---
+        log_content = f"--- TRANSKRYPCJA TICKETU: {channel.name} ---\n"
+        log_content += f"Wygenerowano: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        log_content += f"Zamknięty przez: {interaction.user.name} ({interaction.user.id})\n"
+        log_content += "-----------------------------------------\n\n"
         
-        owner = guild.get_member(TWOJE_ID_DISCORD)
+        # Pobieramy historię wiadomości od początku istnienia kanału
+        async for msg in channel.history(limit=None, oldest_first=True):
+            time_str = msg.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            log_content += f"[{time_str}] {msg.author.name}: {msg.content}\n"
+            if msg.attachments:
+                for att in msg.attachments:
+                    log_content += f" -> [Załącznik]: {att.url}\n"
+                    
+        log_content += "\n--- KONIEC TRANSKRYPCJI ---"
         
-        new_overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        }
+        # Zamiana tekstu na plik w pamięci bota (bez zapisu na dysku)
+        file_data = BytesIO(log_content.encode('utf-8'))
+        log_file = discord.File(file_data, filename=f"log-{channel.name}.txt")
         
-        if owner:
-            new_overwrites[owner] = discord.PermissionOverwrite(read_messages=True, send_messages=True, read_message_history=True)
-            
-        await channel.edit(overwrites=new_overwrites)
+        # Szukanie kanału z logami na serwerze
+        log_channel = discord.utils.get(guild.text_channels, name="logi-ticketow")
         
-        new_name = channel.name.replace("ticket-", "zamkniety-")
-        if not new_name.startswith("zamkniety-"):
-            new_name = f"zamkniety-{new_name}"
-            
-        await channel.edit(name=new_name)
-        
-        closed_embed = discord.Embed(
-            title="🔒 Ticket Zamknięty",
-            description=f"Ten ticket został zamknięty przez {interaction.user.mention} i przeniesiony do Twojego archiwum. Tylko Ty go teraz widzisz.",
-            color=discord.Color.red()
-        )
-        await channel.send(embed=closed_embed)
+        if log_channel:
+            log_embed = discord.Embed(
+                title="🔒 Archiwum Zgłoszenia",
+                description=f"Kanał **{channel.name}** został zamknięty i usunięty przez {interaction.user.mention}.",
+                color=discord.Color.red(),
+                timestamp=discord.utils.utcnow()
+            )
+            await log_channel.send(embed=log_embed, file=log_file)
+        else:
+            # Informacja na wypadek, gdybyś zapomniał stworzyć kanału #logi-ticketow
+            print(f"Błąd: Nie znalazłem kanału o nazwie 'logi-ticketow' na serwerze {guild.name}!")
+
+        # Krótkie odliczanie przed usunięciem kanału, żeby użytkownik zobaczył komunikat
+        await channel.send("⚠️ Kanał zostanie usunięty za 5 sekund...")
+        await asyncio.sleep(5)
+        await channel.delete()
 
 
 class MyBot(discord.Client):
