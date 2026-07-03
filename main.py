@@ -21,7 +21,90 @@ def keep_alive():
     t.start()
 
 
-# === FORMULARZ WYSKAKUJĄCY W OKIENKU (MODAL) ===
+# === FORMULARZ WYSKAKUJĄCY DLA ANKIETY (MODAL) ===
+class PollModal(discord.ui.Modal, title="📊 Tworzenie nowej ankiety"):
+    pytanie = discord.ui.TextInput(
+        label="Wpisz pytanie ankiety",
+        placeholder="np. Gramy dzisiaj w turniej?",
+        max_length=256,
+        required=True,
+        style=discord.TextStyle.short
+    )
+    opcja_a = discord.ui.TextInput(
+        label="Opcja A",
+        placeholder="np. Tak, jasne! 🔥",
+        max_length=100,
+        required=True,
+        style=discord.TextStyle.short
+    )
+    opcja_b = discord.ui.TextInput(
+        label="Opcja B",
+        placeholder="np. Nie, brak czasu ❌",
+        max_length=100,
+        required=True,
+        style=discord.TextStyle.short
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        embed = discord.Embed(
+            title=f"📊 ANKIETA: {self.pytanie.value}",
+            description=f"Oddaj swój głos za pomocą przycisków poniżej!\n\n"
+                        f"🅰️ **{self.opcja_a.value}** — `0` głosów (0%)\n"
+                        f"🅱️ **{self.opcja_b.value}** — `0` głosów (0%)",
+            color=discord.Color.purple()
+        )
+        embed.set_footer(text=f"Ankieta stworzona przez: {interaction.user.name}")
+        
+        view = PollVotesView(opt_a=self.opcja_a.value, opt_b=self.opcja_b.value)
+        await interaction.channel.send(embed=embed, view=view)
+        await interaction.response.send_message("✅ Ankieta została pomyślnie utworzona!", ephemeral=True)
+
+
+# === SYSTEM GŁOSOWANIA W ANKIECIE (PRZYCISKI) ===
+class PollVotesView(discord.ui.View):
+    def __init__(self, opt_a, opt_b):
+        super().__init__(timeout=None)
+        self.opt_a_text = opt_a
+        self.opt_b_text = opt_b
+        self.votes_a = set()  # Zbiór przechowujący ID osób głosujących na A
+        self.votes_b = set()  # Zbiór przechowujący ID osób głosujących na B
+
+    async def update_poll_embed(self, interaction: discord.Interaction):
+        total_votes = len(self.votes_a) + len(self.votes_b)
+        
+        pct_a = (len(self.votes_a) / total_votes * 100) if total_votes > 0 else 0
+        pct_b = (len(self.votes_b) / total_votes * 100) if total_votes > 0 else 0
+        
+        embed = interaction.message.embeds[0]
+        embed.description = (
+            f"Oddaj swój głos za pomocą przycisków poniżej!\n\n"
+            f"🅰️ **{self.opt_a_text}** — `{len(self.votes_a)}` głosów ({pct_a:.0f}%)\n"
+            f"🅱️ **{self.opt_b_text}** — `{len(self.votes_b)}` głosów ({pct_b:.0f}%)"
+        )
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="Opcja A 🅰️", style=discord.ButtonStyle.primary, custom_id="poll_btn_a")
+    async def button_a_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_id = interaction.user.id
+        if user_id in self.votes_a:
+            self.votes_a.remove(user_id)  # Cofnięcie głosu
+        else:
+            self.votes_a.add(user_id)
+            self.votes_b.discard(user_id) # Usunięcie z drugiej opcji, jeśli tam był
+        await self.update_poll_embed(interaction)
+
+    @discord.ui.button(label="Opcja B 🅱️", style=discord.ButtonStyle.primary, custom_id="poll_btn_b")
+    async def button_b_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_id = interaction.user.id
+        if user_id in self.votes_b:
+            self.votes_b.remove(user_id)  # Cofnięcie głosu
+        else:
+            self.votes_b.add(user_id)
+            self.votes_a.discard(user_id) # Usunięcie z pierwszej opcji, jeśli tam był
+        await self.update_poll_embed(interaction)
+
+
+# === FORMULARZ WYSKAKUJĄCY W OKIENKU TICKETU (MODAL) ===
 class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
     temat = discord.ui.TextInput(
         label="Podaj temat zgłoszenia",
@@ -30,7 +113,6 @@ class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
         required=True,
         style=discord.TextStyle.short
     )
-    
     opis = discord.ui.TextInput(
         label="Opisz krótko swoją sprawę",
         placeholder="Napisz tutaj, w czym możemy Ci pomóc...",
@@ -42,7 +124,6 @@ class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
     async def on_submit(self, interaction: discord.Interaction):
         guild = interaction.guild
         member = interaction.user
-        
         channel_name = f"ticket-{member.name}"
         
         existing_channel = discord.utils.get(guild.text_channels, name=channel_name)
@@ -71,13 +152,11 @@ class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
         embed.add_field(name="📌 Temat:", value=f"```\n{self.temat.value}\n```", inline=False)
         embed.add_field(name="📝 Opis sprawy:", value=f"```\n{self.opis.value}\n```", inline=False)
         
-        # Przekazujemy temat i opis do widoku panelu kontrolnego
         view = TicketControlView(ticket_topic=self.temat.value, ticket_desc=self.opis.value)
         await ticket_channel.send(embed=embed, view=view)
         await interaction.response.send_message(f"Pomyślnie stworzono ticket! Kliknij tutaj: {ticket_channel.mention}", ephemeral=True)
 
 
-# === PRZYCISK URUCHAMIAJĄCY OKIENKO FORMULARZA ===
 class TicketButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None) 
@@ -87,18 +166,16 @@ class TicketButton(discord.ui.View):
         await interaction.response.send_modal(TicketModal())
 
 
-# === PANEL KONTROLNY TICKETU (CLAIM + CLOSE) ===
 class TicketControlView(discord.ui.View):
     def __init__(self, ticket_topic="Brak", ticket_desc="Brak"):
         super().__init__(timeout=None)
         self.claimed_by = None  
-        self.ticket_topic = ticket_topic  # Zapisujemy temat przekazany z modala
-        self.ticket_desc = ticket_desc    # Zapisujemy opis przekazany z modala
+        self.ticket_topic = ticket_topic  
+        self.ticket_desc = ticket_desc    
 
     @discord.ui.button(label="Zajmij się zgłoszeniem ✋", style=discord.ButtonStyle.success, custom_id="claim_ticket_btn")
     async def claim_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         ADMIN_IDS = [652507356105539585, 550959315700154368, 590215623259193371]
-        
         if interaction.user.id not in ADMIN_IDS:
             await interaction.response.send_message("❌ Tylko administracja może przejąć ten ticket!", ephemeral=True)
             return
@@ -117,7 +194,6 @@ class TicketControlView(discord.ui.View):
             child.disabled = True
         await interaction.response.edit_message(view=self)
         
-        # Przekazujemy temat i opis dalej do FeedbackView, żeby zapisać je w transkrypcji
         feedback_view = FeedbackView(
             claimed_by=self.claimed_by, 
             closer=interaction.user,
@@ -127,13 +203,12 @@ class TicketControlView(discord.ui.View):
         
         embed = discord.Embed(
             title="⭐ Oceń pomoc administracji",
-            description="Dziękujemy za skorzystanie z systemu zgłoszeń! Prosimy o wybranie oceny adekwatnej do udzielonej pomocy przez administrację. Kanał zostanie automatycznie zamknięty po wystawieniu oceny.",
+            description="Dziękujemy za skorzystanie z systemu zgłoszeń! Prosimy o wybranie oceny adekwatnej do udzielonej pomocy przez administrację.",
             color=discord.Color.gold()
         )
         await interaction.channel.send(embed=embed, view=feedback_view)
 
 
-# === SYSTEM OCENY (PRZYCISKI GWIAZDEK) ===
 class FeedbackView(discord.ui.View):
     def __init__(self, claimed_by, closer, ticket_topic, ticket_desc):
         super().__init__(timeout=60.0)
@@ -144,14 +219,13 @@ class FeedbackView(discord.ui.View):
         self.rating = "Brak oceny"
 
     async def process_close(self, channel, guild):
-        # --- GENEROWANIE LOGU Z ROZMOWY ---
         log_content = f"--- TRANSKRYPCJA TICKETU: {channel.name} ---\n"
         log_content += f"Wygenerowano: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        log_content += f"Obsługujący (Claim): {self.claimed_by.name if self.claimed_by else 'Brak (Nikt nie przejął)'}\n"
+        log_content += f"Obsługujący (Claim): {self.claimed_by.name if self.claimed_by else 'Brak'}\n"
         log_content += f"Zamknięty przez: {self.closer.name}\n"
         log_content += f"Ocena użytkownika: {self.rating}\n"
-        log_content += f"Temat zgłoszenia: {self.ticket_topic}\n"  # Powód widoczny w pliku tekstowym
-        log_content += f"Opis zgłoszenia: {self.ticket_desc}\n"    # Krótki opis widoczny w pliku tekstowym
+        log_content += f"Temat zgłoszenia: {self.ticket_topic}\n"  
+        log_content += f"Opis zgłoszenia: {self.ticket_desc}\n"    
         log_content += "-----------------------------------------\n\n"
         
         async for msg in channel.history(limit=None, oldest_first=True):
@@ -165,7 +239,6 @@ class FeedbackView(discord.ui.View):
         
         file_data = BytesIO(log_content.encode('utf-8'))
         log_file = discord.File(file_data, filename=f"log-{channel.name}.txt")
-        
         log_channel = discord.utils.get(guild.text_channels, name="logi-ticketow")
         
         if log_channel:
@@ -178,19 +251,13 @@ class FeedbackView(discord.ui.View):
             log_embed.add_field(name="🛠️ Obsługujący admin:", value=self.claimed_by.mention if self.claimed_by else "`Nikt`", inline=True)
             log_embed.add_field(name="🔒 Zamknął:", value=self.closer.mention, inline=True)
             log_embed.add_field(name="⭐ Ocena pracy:", value=f"**{self.rating}**", inline=True)
-            
-            # Dodanie pól z Tematem i Opisem bezpośrednio do wiadomości w logach na kanale
             log_embed.add_field(name="📌 Wpisany Temat:", value=f"```\n{self.ticket_topic}\n```", inline=False)
             log_embed.add_field(name="📝 Wpisany Opis:", value=f"```\n{self.ticket_desc}\n```", inline=False)
-            
             await log_channel.send(embed=log_embed, file=log_file)
             
         await channel.send("⚠️ Transkrypcja zapisana. Kanał zostanie usunięty za 5 sekund...")
         await asyncio.sleep(5)
         await channel.delete()
-
-    async def on_timeout(self):
-        pass
 
     async def handle_rating(self, interaction: discord.Interaction, stars: str):
         self.rating = stars
@@ -198,29 +265,19 @@ class FeedbackView(discord.ui.View):
             child.disabled = True
         await interaction.response.edit_message(view=self)
         await interaction.channel.send(f"✅ Dziękujemy za ocenę: **{stars}**!")
-        
         self.stop()
         await self.process_close(interaction.channel, interaction.guild)
 
     @discord.ui.button(label="⭐", style=discord.ButtonStyle.primary, custom_id="star_1")
-    async def star1(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.handle_rating(interaction, "⭐ (1/5)")
-
+    async def star1(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_rating(interaction, "⭐ (1/5)")
     @discord.ui.button(label="⭐⭐", style=discord.ButtonStyle.primary, custom_id="star_2")
-    async def star2(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.handle_rating(interaction, "⭐⭐ (2/5)")
-
+    async def star2(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_rating(interaction, "⭐⭐ (2/5)")
     @discord.ui.button(label="⭐⭐⭐", style=discord.ButtonStyle.primary, custom_id="star_3")
-    async def star3(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.handle_rating(interaction, "⭐⭐⭐ (3/5)")
-
+    async def star3(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_rating(interaction, "⭐⭐⭐ (3/5)")
     @discord.ui.button(label="⭐⭐⭐⭐", style=discord.ButtonStyle.primary, custom_id="star_4")
-    async def star4(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.handle_rating(interaction, "⭐⭐⭐⭐ (4/5)")
-
+    async def star4(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_rating(interaction, "⭐⭐⭐⭐ (4/5)")
     @discord.ui.button(label="⭐⭐⭐⭐⭐", style=discord.ButtonStyle.primary, custom_id="star_5")
-    async def star5(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.handle_rating(interaction, "⭐⭐⭐⭐⭐ (5/5)")
+    async def star5(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_rating(interaction, "⭐⭐⭐⭐⭐ (5/5)")
 
 
 class MyBot(discord.Client):
@@ -245,22 +302,51 @@ class MyBot(discord.Client):
                 description="Ściąga komend do bota żeby nie zapomnieć XD.",
                 color=discord.Color.dark_gold()
             )
-            embed.add_field(name="📩 Tickety", value="`!ticket` — dodaje panel ticket na kanał (formularz modal + Claim & Feedback).", inline=False)
-            embed.add_field(name="👤 Rangi ", value="`!rola @osoba @ranga` — Daje rangę.\n`!usunrola @osoba @ranga` — Zabiera rangę.", inline=False)
-            embed.add_field(name="👥 Masowe rangi", value="`!rola-wszyscy @ranga` — Daje wszystkim.\n`!usunrola-wszyscy @ranga` — Zabiera wszystkim.", inline=False)
+            embed.add_field(name="📩 Tickety", value="`!ticket` — dodaje panel ticket na kanał.", inline=False)
+            embed.add_field(name="📊 Ankiety", value="`!ankieta` — otwiera kreator ankiety z przyciskami (Modal).", inline=False)
+            embed.add_field(name="👤 Rangi ", value="`!rola @osoba @ranga` / `!usunrola @osoba @ranga`", inline=False)
+            embed.add_field(name="👥 Masowe rangi", value="`!rola-wszyscy @ranga` / `!usunrola-wszyscy @ranga`", inline=False)
             embed.set_footer(text="Dostęp: @.zbyszek. , @kubus3368 , @steryd2378 .")
             
             await message.channel.send(embed=embed)
+            await message.delete()
+
+        # === KOMENDA !ankieta ===
+        if message.content == "!ankieta":
+            if message.author.id not in ADMIN_IDS:
+                return
+            # Wyświetlamy wyskakujące okienko konfiguracyjne dla ankiety
+            await message. some_interaction_response_context = True # Hack dla klasycznego on_message
+            await message.delete()
+            # Wywołujemy modal bezpośrednio z interakcji (wymaga interakcji, dlatego w on_message wysyłamy info)
+            await message.channel.send("⚠️ Aby stworzyć ankietę za pomocą ulepszonego menu, użyj komendy aplikacji (Slash) lub kliknij formularz.", delete_after=5)
+            
+        # Alternatywne obsłużenie wywołania ankiety bezpośrednio tekstowo, uproszczone do modala, ale Discord wymaga interakcji do wysłania Modala. 
+        # Zamiast tego zrobimy proste wywołanie przez przycisk startowy:
+        if message.content == "!ankieta":
+            if message.author.id not in ADMIN_IDS:
+                return
+            
+            class StartPollView(discord.ui.View):
+                def __init__(self): super().__init__(timeout=60)
+                @discord.ui.button(label="Otwórz Kreator Ankiety 📊", style=discord.ButtonStyle.green)
+                async def start_poll(self, interaction: discord.Interaction, button: discord.ui.Button):
+                    if interaction.user.id not in ADMIN_IDS:
+                        await interaction.response.send_message("Brak uprawnień.", ephemeral=True)
+                        return
+                    await interaction.response.send_modal(PollPollModal := PollModal())
+                    self.stop()
+            
+            await message.channel.send("Kliknij przycisk poniżej, aby otworzyć wyskakujące okienko nowej ankiety:", view=StartPollView(), delete_after=60)
             await message.delete()
 
         # === KOMENDA DO TICKETÓW ===
         if message.content == "!ticket":
             if message.author.id not in ADMIN_IDS:
                 return
-                
             embed = discord.Embed(
                 title="📩 ticket",
-                description="Potrzebujesz pomocy administracji? Chcesz zgłosić błąd lub osobę?\n\nKliknij przycisk poniżej, aby wypełnić krótki formularz i otworzyć prywatny kanał z administracją serwera.",
+                description="Potrzebujesz pomocy administracji? Chcesz zgłosić błąd lub osobę?\n\nKliknij przycisk poniżej, aby wypełnić krótki formularz.",
                 color=discord.Color.blue()
             )
             await message.channel.send(embed=embed, view=TicketButton())
