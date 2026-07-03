@@ -315,17 +315,6 @@ class MyBot(discord.Client):
         if message.content == "!ankieta":
             if message.author.id not in ADMIN_IDS:
                 return
-            # Wyświetlamy wyskakujące okienko konfiguracyjne dla ankiety
-            await message. some_interaction_response_context = True # Hack dla klasycznego on_message
-            await message.delete()
-            # Wywołujemy modal bezpośrednio z interakcji (wymaga interakcji, dlatego w on_message wysyłamy info)
-            await message.channel.send("⚠️ Aby stworzyć ankietę za pomocą ulepszonego menu, użyj komendy aplikacji (Slash) lub kliknij formularz.", delete_after=5)
-            
-        # Alternatywne obsłużenie wywołania ankiety bezpośrednio tekstowo, uproszczone do modala, ale Discord wymaga interakcji do wysłania Modala. 
-        # Zamiast tego zrobimy proste wywołanie przez przycisk startowy:
-        if message.content == "!ankieta":
-            if message.author.id not in ADMIN_IDS:
-                return
             
             class StartPollView(discord.ui.View):
                 def __init__(self): super().__init__(timeout=60)
@@ -334,7 +323,7 @@ class MyBot(discord.Client):
                     if interaction.user.id not in ADMIN_IDS:
                         await interaction.response.send_message("Brak uprawnień.", ephemeral=True)
                         return
-                    await interaction.response.send_modal(PollPollModal := PollModal())
+                    await interaction.response.send_modal(PollModal())
                     self.stop()
             
             await message.channel.send("Kliknij przycisk poniżej, aby otworzyć wyskakujące okienko nowej ankiety:", view=StartPollView(), delete_after=60)
