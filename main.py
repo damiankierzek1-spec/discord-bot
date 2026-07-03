@@ -283,7 +283,69 @@ class MyBot(discord.Client):
 
         ADMIN_IDS = [652507356105539585, 550959315700154368, 590215623259193371]
 
-        
+        # Dodane: obsługa komendy !dm @osoba (wiadomosc)
+        if message.content.startswith("!dm "):
+            if message.author.id not in ADMIN_IDS:
+                return
+            try:
+                parts = message.content.split(" ", 2)
+                user_mention = parts[1]
+                msg_content = parts[2]
+                if not message.mentions:
+                    await message.channel.send("❌ Musisz oznaczyć użytkownika!")
+                    return
+                target_user = message.mentions[0]
+                await target_user.send(msg_content)
+                await message.channel.send(f"✅ Wysłano prywatną wiadomość do {target_user.mention}.")
+            except Exception as e:
+                await message.channel.send("❌ Wystąpił błąd przy wysyłaniu wiadomości.")
+            return
+
+        # Dodane: obsługa komendy !find @osoba
+        if message.content.startswith("!find "):
+            if message.author.id not in ADMIN_IDS:
+                return
+            if not message.mentions:
+                await message.channel.send("❌ Musisz oznaczyć użytkownika!")
+                return
+            target_user = message.mentions[0]
+            member = target_user
+
+            embed = discord.Embed(title="📝 Informacje o użytkowniku", color=discord.Color.blue())
+
+            # Data utworzenia konta
+            account_created = member.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            embed.add_field(name="Data utworzenia konta", value=account_created, inline=False)
+
+            # Data dołączenia do serwera
+            joined_at = member.joined_at.strftime("%Y-%m-%d %H:%M:%S") if member.joined_at else "Brak danych"
+            embed.add_field(name="Data dołączenia do serwera", value=joined_at, inline=False)
+
+            # ID użytkownika
+            embed.add_field(name="ID użytkownika", value=str(member.id), inline=False)
+
+            # Najwyższa rola
+            highest_role = member.top_role.name if member.top_role else "Brak ról"
+            embed.add_field(name="Najwyższa rola", value=highest_role, inline=False)
+
+            # Liczba ról
+            role_count = len(member.roles)
+            embed.add_field(name="Liczba ról", value=str(role_count), inline=False)
+
+            # Status bota
+            status = "Bot" if member.bot else "Użytkownik"
+            embed.add_field(name="Status", value=status, inline=False)
+
+            # Avatar
+            embed.set_thumbnail(url=member.display_avatar.url)
+
+            # Ładny embed
+            embed.set_footer(text=f"Informacje o {member.name}#{member.discriminator}")
+
+            await message.channel.send(embed=embed)
+            return
+
+        # Reszta istniejących komend (np. !pomoc, !ankieta, etc.)
         if message.content == "!pomoc":
             if message.author.id not in ADMIN_IDS:
                 return
@@ -302,7 +364,6 @@ class MyBot(discord.Client):
             await message.delete()
             return
 
-        
         if message.content == "!ankieta":
             if message.author.id not in ADMIN_IDS:
                 return
@@ -311,7 +372,6 @@ class MyBot(discord.Client):
             await message.delete()
             return
 
-        
         if message.content == "!ticket":
             if message.author.id not in ADMIN_IDS:
                 return
@@ -320,7 +380,7 @@ class MyBot(discord.Client):
             await message.delete()
             return
 
-        
+        # Komendy do ról
         if message.content.startswith("!rola "):
             if message.author.id not in ADMIN_IDS:
                 return
@@ -347,7 +407,6 @@ class MyBot(discord.Client):
                 await message.channel.send("❌ Brak uprawnień.")
             return
 
-        
         if message.content.startswith("!usunrola "):
             if message.author.id not in ADMIN_IDS:
                 return
@@ -374,7 +433,6 @@ class MyBot(discord.Client):
                 await message.channel.send("❌ Brak uprawnień.")
             return
 
-        
         if message.content.startswith("!rola-wszyscy"):
             if message.author.id not in ADMIN_IDS:
                 return
@@ -410,7 +468,6 @@ class MyBot(discord.Client):
             await status_message.edit(content=f"✨ Zakończono! Dodano rangę **{role.name}** dla {success_count} osób.")
             return
 
-        
         if message.content.startswith("!usunrola-wszyscy"):
             if message.author.id not in ADMIN_IDS:
                 return
@@ -446,7 +503,7 @@ class MyBot(discord.Client):
             await status_message.edit(content=f"❌ Zakończono! Odebrano rangę **{role.name}** {success_count} użytkownikom.")
             return
 
-        
+        # Testowe komendy
         if message.content == "!test-przyloty":
             if message.author.id not in ADMIN_IDS:
                 return
@@ -478,7 +535,6 @@ class MyBot(discord.Client):
         if message.content == "!test-witamy":
             if message.author.id not in ADMIN_IDS:
                 return
-           
             ch1 = discord.utils.get(message.guild.text_channels, name="⌊przyloty⌉⌊🌆⌉")
             ch2 = discord.utils.get(message.guild.text_channels, name="⌊odloty⌉⌊🌇⌉")
             if ch1:
@@ -491,7 +547,69 @@ class MyBot(discord.Client):
             await message.delete()
             return
 
+        # Obsługa komendy !dm @osoba (wiadomosc)
+        if message.content.startswith("!dm "):
+            if message.author.id not in ADMIN_IDS:
+                return
+            try:
+                parts = message.content.split(" ", 2)
+                user_mention = parts[1]
+                msg_content = parts[2]
+                if not message.mentions:
+                    await message.channel.send("❌ Musisz oznaczyć użytkownika!")
+                    return
+                target_user = message.mentions[0]
+                await target_user.send(msg_content)
+                await message.channel.send(f"✅ Wysłano prywatną wiadomość do {target_user.mention}.")
+            except Exception as e:
+                await message.channel.send("❌ Wystąpił błąd przy wysyłaniu wiadomości.")
+            return
 
+        # Obsługa komendy !find @osoba
+        if message.content.startswith("!find "):
+            if message.author.id not in ADMIN_IDS:
+                return
+            if not message.mentions:
+                await message.channel.send("❌ Musisz oznaczyć użytkownika!")
+                return
+            target_user = message.mentions[0]
+            member = target_user
+
+            embed = discord.Embed(title="📝 Informacje o użytkowniku", color=discord.Color.blue())
+
+            # Data utworzenia konta
+            account_created = member.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            embed.add_field(name="Data utworzenia konta", value=account_created, inline=False)
+
+            # Data dołączenia do serwera
+            joined_at = member.joined_at.strftime("%Y-%m-%d %H:%M:%S") if member.joined_at else "Brak danych"
+            embed.add_field(name="Data dołączenia do serwera", value=joined_at, inline=False)
+
+            # ID użytkownika
+            embed.add_field(name="ID użytkownika", value=str(member.id), inline=False)
+
+            # Najwyższa rola
+            highest_role = member.top_role.name if member.top_role else "Brak ról"
+            embed.add_field(name="Najwyższa rola", value=highest_role, inline=False)
+
+            # Liczba ról
+            role_count = len(member.roles)
+            embed.add_field(name="Liczba ról", value=str(role_count), inline=False)
+
+            # Status bota
+            status = "Bot" if member.bot else "Użytkownik"
+            embed.add_field(name="Status", value=status, inline=False)
+
+            # Avatar
+            embed.set_thumbnail(url=member.display_avatar.url)
+
+            # Ładny embed
+            embed.set_footer(text=f"Informacje o {member.name}#{member.discriminator}")
+
+            await message.channel.send(embed=embed)
+            return
+
+# Inicjalizacja klienta
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
