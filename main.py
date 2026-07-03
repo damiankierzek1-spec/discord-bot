@@ -103,11 +103,12 @@ class MyBot(discord.Client):
         if message.author == self.user:
             return
 
-        TWOJE_ID_DISCORD = 652507356105539585 
+        # Lista ID osób, które mogą używać komend bota (Ty + 2 nowych administratorów)
+        ADMIN_IDS = [652507356105539585, 550959315700154368, 590215623259193371]
 
         # === KOMENDA !pomoc (LISTA KOMEND) ===
         if message.content == "!pomoc":
-            if message.author.id != TWOJE_ID_DISCORD:
+            if message.author.id not in ADMIN_IDS:
                 return
 
             embed = discord.Embed(
@@ -132,14 +133,14 @@ class MyBot(discord.Client):
                 inline=False
             )
             
-            embed.set_footer(text="Dostęp do tych komend masz tylko Ty.")
+            embed.set_footer(text="Dostęp do tych komend ma tylko uprawniona administracja.")
             
             await message.channel.send(embed=embed)
             await message.delete()
 
         # === KOMENDA DO TICKETÓW ===
         if message.content == "!ticket":
-            if message.author.id != TWOJE_ID_DISCORD:
+            if message.author.id not in ADMIN_IDS:
                 return
                 
             embed = discord.Embed(
@@ -152,7 +153,7 @@ class MyBot(discord.Client):
 
         # === KOMENDA DO NADAWANIA RANGI JEDNEJ OSOBIE ===
         if message.content.startswith("!rola "):
-            if message.author.id != TWOJE_ID_DISCORD:
+            if message.author.id not in ADMIN_IDS:
                 return
 
             content_clean = message.content[6:].strip()
@@ -189,7 +190,7 @@ class MyBot(discord.Client):
 
         # === KOMENDA DO USUWANIA RANGI JEDNEJ OSOBIE ===
         if message.content.startswith("!usunrola "):
-            if message.author.id != TWOJE_ID_DISCORD:
+            if message.author.id not in ADMIN_IDS:
                 return
 
             content_clean = message.content[10:].strip()
@@ -226,7 +227,7 @@ class MyBot(discord.Client):
 
         # === KOMENDA DO NADAWANIA RANGI WSZYSTKIM ===
         if message.content.startswith("!rola-wszyscy"):
-            if message.author.id != TWOJE_ID_DISCORD:
+            if message.author.id not in ADMIN_IDS:
                 return
 
             args = message.content.split(" ", 1)
@@ -274,7 +275,7 @@ class MyBot(discord.Client):
 
         # === KOMENDA DO USUWANIA RANGI WSZYSTKIM ===
         if message.content.startswith("!usunrola-wszyscy"):
-            if message.author.id != TWOJE_ID_DISCORD:
+            if message.author.id not in ADMIN_IDS:
                 return
 
             args = message.content.split(" ", 1)
