@@ -5,7 +5,6 @@ from threading import Thread
 import asyncio
 from io import BytesIO
 from datetime import datetime
-import aiohttp  # Dodane do obsługi zapytań HTTP do API gier
 
 app = Flask('')
 
@@ -308,6 +307,7 @@ class FeedbackView(discord.ui.View):
 class MyBot(discord.Client):
     async def on_ready(self):
         print(f'Logged on as {self.user}!')
+        # Rejestrujemy stałe widoki (aby przyciski działały zawsze, nawet po restarcie)
         self.add_view(TicketButton())
         self.add_view(TicketControlView())
         self.add_view(StartPollView())
@@ -317,59 +317,6 @@ class MyBot(discord.Client):
             return
 
         ADMIN_IDS = [652507356105539585, 550959315700154368, 590215623259193371]
-
-        # === KOMENDA !profil ===
-        if message.content.startswith("!profil"):
-            # Format komendy: !profil [lol/val/cs] [nick]
-            args = message.content.split(" ", 2)
-            if len(args) < 3:
-                await message.channel.send("❌ Prawidłowe użycie: `!profil [lol/val/cs] [TwójNick#Tag Lub Nick]`\nPrzykład: `!profil lol Faker#KR1` lub `!profil val TenZ#NA1`")
-                return
-
-            gra = args[1].lower()
-            gracz_raw = args[2]
-
-            stan_msg = await message.channel.send("⏳ *Pobieranie statystyk z bazy danych... Proszę czekać.*")
-
-            # Przygotowanie danych (symulacja uniwersalnego parsera danych z API dla stabilności bota)
-            # W rzeczywistym środowisku tutaj uderza się do API typu Henrik-API (dla Valorant) lub Riot API.
-            await asyncio.sleep(1.5) # Efekt ładowania
-
-            if gra == "lol":
-                # Statystyki League of Legends
-                embed = discord.Embed(title=f"⚔️ Profil League of Legends: {gracz_raw}", color=discord.Color.blue())
-                embed.add_field(name="🏆 Ranga Solo/Duo:", value="`💎 Diamond II` (64 LP)", inline=True)
-                embed.add_field(name="📈 Winrate:", value="`54.2%` (112 W / 95 L)", inline=True)
-                embed.add_field(name="⭐ Poziom Konta:", value="`Level 342`", inline=True)
-                embed.add_field(name="🔥 Najlepsi Bohaterowie:", value="1. Lee Sin (M7 - 120k XP)\n2. Yasuo (M7 - 98k XP)\n3. Thresh (M6 - 54k XP)", inline=False)
-                embed.set_thumbnail(url="https://i.imgur.com/83pZpGv.png") # Ikona LoLa
-                
-            elif gra == "val" or gra == "valorant":
-                # Statystyki Valorant
-                embed = discord.Embed(title=f"🎯 Profil Valorant: {gracz_raw}", color=discord.Color.red())
-                embed.add_field(name="👑 Ranga:", value="`👹 Immortal 1`", inline=True)
-                embed.add_field(name="📊 K/D Ratio:", value="`1.18`", inline=True)
-                embed.add_field(name="🔥 Headshot %:", value="`24.5%`", inline=True)
-                embed.add_field(name="👤 Główni Agenci:", value="`Jett`, `Reyna`, `Omen`", inline=False)
-                embed.set_thumbnail(url="https://i.imgur.com/w8q363X.png") # Ikona Valorant
-
-            elif gra == "cs" or gra == "cs2":
-                # Statystyki CS2
-                embed = discord.Embed(title=f"🔫 Profil Counter-Strike 2: {gracz_raw}", color=discord.Color.orange())
-                embed.add_field(name="🗺️ Premier Rating:", value="`⚡ 16,450 XP`", inline=True)
-                embed.add_field(name="📊 K/D Ratio:", value="`1.09`", inline=True)
-                embed.add_field(name="🏆 Winrate:", value="`51.8%`", inline=True)
-                embed.add_field(name="⭐ Ulubiona Broń:", value="`AK-47` (42% zabójstw)", inline=False)
-                embed.set_thumbnail(url="https://i.imgur.com/E8R9N50.png") # Ikona CS
-                
-            else:
-                await stan_msg.edit(content="❌ Niepoprawna gra! Wybierz jedną z trzech opcji: `lol` (League of Legends), `val` (Valorant), `cs` (CS2).")
-                return
-
-            embed.set_footer(text=f"Zapytanie wygenerowane przez: {message.author.name}", icon_url=message.author.display_avatar.url)
-            await stan_msg.delete()
-            await message.channel.send(embed=embed)
-
 
         # === KOMENDA !pomoc ===
         if message.content == "!pomoc":
@@ -383,7 +330,6 @@ class MyBot(discord.Client):
             )
             embed.add_field(name="📩 Tickety", value="`!ticket` — dodaje panel ticket na kanał.", inline=False)
             embed.add_field(name="📊 Ankiety", value="`!ankieta` — dodaje stały panel tworzenia ankiet.", inline=False)
-            embed.add_field(name="🎮 Statystyki Gier", value="`!profil [lol/val/cs] [nick]` — Wyświetla statystyki z gry.", inline=False)
             embed.add_field(name="👤 Rangi ", value="`!rola @osoba @ranga` / `!usunrola @osoba @ranga`", inline=False)
             embed.add_field(name="👥 Masowe rangi", value="`!rola-wszyscy @ranga` / `!usunrola-wszyscy @ranga`", inline=False)
             embed.set_footer(text="Dostęp: @.zbyszek. , @kubus3368 , @steryd2378 .")
