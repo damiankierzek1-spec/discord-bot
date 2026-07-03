@@ -71,8 +71,8 @@ class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
         embed.add_field(name="📌 Temat:", value=f"```\n{self.temat.value}\n```", inline=False)
         embed.add_field(name="📝 Opis sprawy:", value=f"```\n{self.opis.value}\n```", inline=False)
         
-        # Tworzymy panel z przyciskiem Claim i Close
-        view = TicketControlView()
+        # Przekazujemy temat i opis do widoku panelu kontrolnego
+        view = TicketControlView(ticket_topic=self.temat.value, ticket_desc=self.opis.value)
         await ticket_channel.send(embed=embed, view=view)
         await interaction.response.send_message(f"Pomyślnie stworzono ticket! Kliknij tutaj: {ticket_channel.mention}", ephemeral=True)
 
@@ -89,9 +89,11 @@ class TicketButton(discord.ui.View):
 
 # === PANEL KONTROLNY TICKETU (CLAIM + CLOSE) ===
 class TicketControlView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, ticket_topic="Brak", ticket_desc="Brak"):
         super().__init__(timeout=None)
-        self.claimed_by = None  # Przechowuje obiekt admina, który przejął ticket
+        self.claimed_by = None  
+        self.ticket_topic = ticket_topic  # Zapisujemy temat przekazany z modala
+        self.ticket_desc = ticket_desc    # Zapisujemy opis przekazany z modala
 
     @discord.ui.button(label="Zajmij się zgłoszeniem ✋", style=discord.ButtonStyle.success, custom_id="claim_ticket_btn")
     async def claim_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -111,13 +113,17 @@ class TicketControlView(discord.ui.View):
 
     @discord.ui.button(label="Zamknij Ticket 🔒", style=discord.ButtonStyle.danger, custom_id="close_control_btn")
     async def close_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Wyłączamy przyciski zarządzania, żeby nikt nic nie klikał w trakcie zamykania
         for child in self.children:
             child.disabled = True
         await interaction.response.edit_message(view=self)
         
-        # Uruchamiamy procedurę zbierania opinii (Feedbacku)
-        feedback_view = FeedbackView(claimed_by=self.claimed_by, closer=interaction.user)
+        # Przekazujemy temat i opis dalej do FeedbackView, żeby zapisać je w transkrypcji
+        feedback_view = FeedbackView(
+            claimed_by=self.claimed_by, 
+            closer=interaction.user,
+            ticket_topic=self.ticket_topic,
+            ticket_desc=self.ticket_desc
+        )
         
         embed = discord.Embed(
             title="⭐ Oceń pomoc administracji",
@@ -129,10 +135,12 @@ class TicketControlView(discord.ui.View):
 
 # === SYSTEM OCENY (PRZYCISKI GWIAZDEK) ===
 class FeedbackView(discord.ui.View):
-    def __init__(self, claimed_by, closer):
-        super().__init__(timeout=60.0) # Formularz wygaśnie po minucie jeśli użytkownik nic nie kliknie
+    def __init__(self, claimed_by, closer, ticket_topic, ticket_desc):
+        super().__init__(timeout=60.0)
         self.claimed_by = claimed_by
         self.closer = closer
+        self.ticket_topic = ticket_topic
+        self.ticket_desc = ticket_desc
         self.rating = "Brak oceny"
 
     async def process_close(self, channel, guild):
@@ -142,6 +150,8 @@ class FeedbackView(discord.ui.View):
         log_content += f"Obsługujący (Claim): {self.claimed_by.name if self.claimed_by else 'Brak (Nikt nie przejął)'}\n"
         log_content += f"Zamknięty przez: {self.closer.name}\n"
         log_content += f"Ocena użytkownika: {self.rating}\n"
+        log_content += f"Temat zgłoszenia: {self.ticket_topic}\n"  # Powód widoczny w pliku tekstowym
+        log_content += f"Opis zgłoszenia: {self.ticket_desc}\n"    # Krótki opis widoczny w pliku tekstowym
         log_content += "-----------------------------------------\n\n"
         
         async for msg in channel.history(limit=None, oldest_first=True):
@@ -165,9 +175,13 @@ class FeedbackView(discord.ui.View):
                 color=discord.Color.red(),
                 timestamp=discord.utils.utcnow()
             )
-            log_embed.add_field(name="🛠️ Obsługujący admin:", value=self.claimed_by.mention if self.claimed_by else "`Nikt` Gold", inline=True)
+            log_embed.add_field(name="🛠️ Obsługujący admin:", value=self.claimed_by.mention if self.claimed_by else "`Nikt`", inline=True)
             log_embed.add_field(name="🔒 Zamknął:", value=self.closer.mention, inline=True)
-            log_embed.add_field(name="⭐ Ocena pracy:", value=f"**{self.rating}**", inline=False)
+            log_embed.add_field(name="⭐ Ocena pracy:", value=f"**{self.rating}**", inline=True)
+            
+            # Dodanie pól z Tematem i Opisem bezpośrednio do wiadomości w logach na kanale
+            log_embed.add_field(name="📌 Wpisany Temat:", value=f"```\n{self.ticket_topic}\n```", inline=False)
+            log_embed.add_field(name="📝 Wpisany Opis:", value=f"```\n{self.ticket_desc}\n```", inline=False)
             
             await log_channel.send(embed=log_embed, file=log_file)
             
@@ -176,7 +190,6 @@ class FeedbackView(discord.ui.View):
         await channel.delete()
 
     async def on_timeout(self):
-        # Jeśli minie minuta i klient nie oceni, bot i tak zamyka sprawę bez oceny
         pass
 
     async def handle_rating(self, interaction: discord.Interaction, stars: str):
@@ -186,7 +199,6 @@ class FeedbackView(discord.ui.View):
         await interaction.response.edit_message(view=self)
         await interaction.channel.send(f"✅ Dziękujemy za ocenę: **{stars}**!")
         
-        # Stopujemy view i odpalamy archiwizację
         self.stop()
         await self.process_close(interaction.channel, interaction.guild)
 
