@@ -64,13 +64,16 @@ class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
         
         embed = discord.Embed(
             title="🎫 Nowe Zgłoszenie użytkownika",
-            description=f"Witaj {member.mention}! Administracja została powiadomiona o Twoim zgłoszeniu. Odpowiemy tak szybko, jak to możliwe.\n\nAby zamknąć to zgłoszenie, kliknij przycisk poniżej.",
+            description=f"Witaj {member.mention}! Administracja została powiadomiona o Twoim zgłoszeniu. Odpowiemy tak szybko, jak to możliwe.\n\n"
+                        f"👉 **Kliknij przycisk poniżej, aby przejąć to zgłoszenie!**",
             color=discord.Color.green()
         )
         embed.add_field(name="📌 Temat:", value=f"```\n{self.temat.value}\n```", inline=False)
         embed.add_field(name="📝 Opis sprawy:", value=f"```\n{self.opis.value}\n```", inline=False)
         
-        await ticket_channel.send(embed=embed, view=CloseTicketButton())
+        # Tworzymy panel z przyciskiem Claim i Close
+        view = TicketControlView()
+        await ticket_channel.send(embed=embed, view=view)
         await interaction.response.send_message(f"Pomyślnie stworzono ticket! Kliknij tutaj: {ticket_channel.mention}", ephemeral=True)
 
 
@@ -84,25 +87,63 @@ class TicketButton(discord.ui.View):
         await interaction.response.send_modal(TicketModal())
 
 
-# === PRZYCISK ZAMYKANIA TICKETU + TRANSKRYPCJA ===
-class CloseTicketButton(discord.ui.View):
+# === PANEL KONTROLNY TICKETU (CLAIM + CLOSE) ===
+class TicketControlView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
+        self.claimed_by = None  # Przechowuje obiekt admina, który przejął ticket
 
-    @discord.ui.button(label="Zamknij Ticket 🔒", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn")
-    async def button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        guild = interaction.guild
-        channel = interaction.channel
+    @discord.ui.button(label="Zajmij się zgłoszeniem ✋", style=discord.ButtonStyle.success, custom_id="claim_ticket_btn")
+    async def claim_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        ADMIN_IDS = [652507356105539585, 550959315700154368, 590215623259193371]
         
-        await interaction.response.send_message("Generowanie transkrypcji i zamykanie ticketu...", ephemeral=False)
+        if interaction.user.id not in ADMIN_IDS:
+            await interaction.response.send_message("❌ Tylko administracja może przejąć ten ticket!", ephemeral=True)
+            return
+
+        self.claimed_by = interaction.user
+        button.disabled = True
+        button.label = f"Obsługiwane przez: {interaction.user.name} 🛠️"
+        button.style = discord.ButtonStyle.secondary
         
+        await interaction.response.edit_message(view=self)
+        await interaction.channel.send(f"➡️ {interaction.user.mention} **przejął to zgłoszenie i udzieli pomocy!**")
+
+    @discord.ui.button(label="Zamknij Ticket 🔒", style=discord.ButtonStyle.danger, custom_id="close_control_btn")
+    async def close_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Wyłączamy przyciski zarządzania, żeby nikt nic nie klikał w trakcie zamykania
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(view=self)
+        
+        # Uruchamiamy procedurę zbierania opinii (Feedbacku)
+        feedback_view = FeedbackView(claimed_by=self.claimed_by, closer=interaction.user)
+        
+        embed = discord.Embed(
+            title="⭐ Oceń pomoc administracji",
+            description="Dziękujemy za skorzystanie z systemu zgłoszeń! Prosimy o wybranie oceny adekwatnej do udzielonej pomocy przez administrację. Kanał zostanie automatycznie zamknięty po wystawieniu oceny.",
+            color=discord.Color.gold()
+        )
+        await interaction.channel.send(embed=embed, view=feedback_view)
+
+
+# === SYSTEM OCENY (PRZYCISKI GWIAZDEK) ===
+class FeedbackView(discord.ui.View):
+    def __init__(self, claimed_by, closer):
+        super().__init__(timeout=60.0) # Formularz wygaśnie po minucie jeśli użytkownik nic nie kliknie
+        self.claimed_by = claimed_by
+        self.closer = closer
+        self.rating = "Brak oceny"
+
+    async def process_close(self, channel, guild):
         # --- GENEROWANIE LOGU Z ROZMOWY ---
         log_content = f"--- TRANSKRYPCJA TICKETU: {channel.name} ---\n"
         log_content += f"Wygenerowano: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        log_content += f"Zamknięty przez: {interaction.user.name} ({interaction.user.id})\n"
+        log_content += f"Obsługujący (Claim): {self.claimed_by.name if self.claimed_by else 'Brak (Nikt nie przejął)'}\n"
+        log_content += f"Zamknięty przez: {self.closer.name}\n"
+        log_content += f"Ocena użytkownika: {self.rating}\n"
         log_content += "-----------------------------------------\n\n"
         
-        # Pobieramy historię wiadomości od początku istnienia kanału
         async for msg in channel.history(limit=None, oldest_first=True):
             time_str = msg.created_at.strftime('%Y-%m-%d %H:%M:%S')
             log_content += f"[{time_str}] {msg.author.name}: {msg.content}\n"
@@ -112,36 +153,69 @@ class CloseTicketButton(discord.ui.View):
                     
         log_content += "\n--- KONIEC TRANSKRYPCJI ---"
         
-        # Zamiana tekstu na plik w pamięci bota (bez zapisu na dysku)
         file_data = BytesIO(log_content.encode('utf-8'))
         log_file = discord.File(file_data, filename=f"log-{channel.name}.txt")
         
-        # Szukanie kanału z logami na serwerze
         log_channel = discord.utils.get(guild.text_channels, name="logi-ticketow")
         
         if log_channel:
             log_embed = discord.Embed(
                 title="🔒 Archiwum Zgłoszenia",
-                description=f"Kanał **{channel.name}** został zamknięty i usunięty przez {interaction.user.mention}.",
+                description=f"Kanał **{channel.name}** został pomyślnie zamknięty.",
                 color=discord.Color.red(),
                 timestamp=discord.utils.utcnow()
             )
+            log_embed.add_field(name="🛠️ Obsługujący admin:", value=self.claimed_by.mention if self.claimed_by else "`Nikt` Gold", inline=True)
+            log_embed.add_field(name="🔒 Zamknął:", value=self.closer.mention, inline=True)
+            log_embed.add_field(name="⭐ Ocena pracy:", value=f"**{self.rating}**", inline=False)
+            
             await log_channel.send(embed=log_embed, file=log_file)
-        else:
-            # Informacja na wypadek, gdybyś zapomniał stworzyć kanału #logi-ticketow
-            print(f"Błąd: Nie znalazłem kanału o nazwie 'logi-ticketow' na serwerze {guild.name}!")
-
-        # Krótkie odliczanie przed usunięciem kanału, żeby użytkownik zobaczył komunikat
-        await channel.send("⚠️ Kanał zostanie usunięty za 5 sekund...")
+            
+        await channel.send("⚠️ Transkrypcja zapisana. Kanał zostanie usunięty za 5 sekund...")
         await asyncio.sleep(5)
         await channel.delete()
+
+    async def on_timeout(self):
+        # Jeśli minie minuta i klient nie oceni, bot i tak zamyka sprawę bez oceny
+        pass
+
+    async def handle_rating(self, interaction: discord.Interaction, stars: str):
+        self.rating = stars
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(view=self)
+        await interaction.channel.send(f"✅ Dziękujemy za ocenę: **{stars}**!")
+        
+        # Stopujemy view i odpalamy archiwizację
+        self.stop()
+        await self.process_close(interaction.channel, interaction.guild)
+
+    @discord.ui.button(label="⭐", style=discord.ButtonStyle.primary, custom_id="star_1")
+    async def star1(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.handle_rating(interaction, "⭐ (1/5)")
+
+    @discord.ui.button(label="⭐⭐", style=discord.ButtonStyle.primary, custom_id="star_2")
+    async def star2(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.handle_rating(interaction, "⭐⭐ (2/5)")
+
+    @discord.ui.button(label="⭐⭐⭐", style=discord.ButtonStyle.primary, custom_id="star_3")
+    async def star3(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.handle_rating(interaction, "⭐⭐⭐ (3/5)")
+
+    @discord.ui.button(label="⭐⭐⭐⭐", style=discord.ButtonStyle.primary, custom_id="star_4")
+    async def star4(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.handle_rating(interaction, "⭐⭐⭐⭐ (4/5)")
+
+    @discord.ui.button(label="⭐⭐⭐⭐⭐", style=discord.ButtonStyle.primary, custom_id="star_5")
+    async def star5(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.handle_rating(interaction, "⭐⭐⭐⭐⭐ (5/5)")
 
 
 class MyBot(discord.Client):
     async def on_ready(self):
         print(f'Logged on as {self.user}!')
         self.add_view(TicketButton())
-        self.add_view(CloseTicketButton())
+        self.add_view(TicketControlView())
 
     async def on_message(self, message):
         if message.author == self.user:
@@ -149,7 +223,7 @@ class MyBot(discord.Client):
 
         ADMIN_IDS = [652507356105539585, 550959315700154368, 590215623259193371]
 
-        # === KOMENDA !pomoc (LISTA KOMEND) ===
+        # === KOMENDA !pomoc ===
         if message.content == "!pomoc":
             if message.author.id not in ADMIN_IDS:
                 return
@@ -159,24 +233,10 @@ class MyBot(discord.Client):
                 description="Ściąga komend do bota żeby nie zapomnieć XD.",
                 color=discord.Color.dark_gold()
             )
-            
-            embed.add_field(
-                name="📩 Tickety", 
-                value="`!ticket` — dodaje panel ticket na kanał (otwiera formularz zgłoszeniowy w wyskakującym okienku).", 
-                inline=False
-            )
-            embed.add_field(
-                name="👤 Rangi ", 
-                value="`!rola @osoba @ranga` — Daje rangę.\n`!usunrola @osoba @ranga` — Zabiera rangę.", 
-                inline=False
-            )
-            embed.add_field(
-                name="👥 Masowe zarządzanie rangami", 
-                value="`!rola-wszyscy @ranga` — Daje rangę każdemu na serwerze.\n`!usunrola-wszyscy @ranga` — Zabiera rangę każdemu na serwerze.", 
-                inline=False
-            )
-            
-            embed.set_footer(text="Dostęp do tych komend ma tylko uprawniona administracja czyli @.zbyszek. , @kubus3368 , @steryd2378 .")
+            embed.add_field(name="📩 Tickety", value="`!ticket` — dodaje panel ticket na kanał (formularz modal + Claim & Feedback).", inline=False)
+            embed.add_field(name="👤 Rangi ", value="`!rola @osoba @ranga` — Daje rangę.\n`!usunrola @osoba @ranga` — Zabiera rangę.", inline=False)
+            embed.add_field(name="👥 Masowe rangi", value="`!rola-wszyscy @ranga` — Daje wszystkim.\n`!usunrola-wszyscy @ranga` — Zabiera wszystkim.", inline=False)
+            embed.set_footer(text="Dostęp: @.zbyszek. , @kubus3368 , @steryd2378 .")
             
             await message.channel.send(embed=embed)
             await message.delete()
@@ -194,175 +254,123 @@ class MyBot(discord.Client):
             await message.channel.send(embed=embed, view=TicketButton())
             await message.delete() 
 
-        # === KOMENDA DO NADAWANIA RANGI JEDNEJ OSOBIE ===
+        # === KOMENDA !rola ===
         if message.content.startswith("!rola "):
             if message.author.id not in ADMIN_IDS:
                 return
-
             content_clean = message.content[6:].strip()
             if not message.mentions:
-                await message.channel.send("❌ Musisz oznaczyć użytkownika! Przykład: `!rola @Kuba @Ranga`")
+                await message.channel.send("❌ Musisz oznaczyć użytkownika!")
                 return
-
             target_user = message.mentions[0]
             guild = message.guild
-
             role_part = content_clean.replace(target_user.mention, "").strip()
             role_part = role_part.replace(f"<@!{target_user.id}>", "").strip()
             role_part = role_part.replace(f"<@{target_user.id}>", "").strip()
-
-            role = None
-            if message.role_mentions:
-                role = message.role_mentions[0]
-            else:
-                role = discord.utils.get(guild.roles, name=role_part)
-
+            role = message.role_mentions[0] if message.role_mentions else discord.utils.get(guild.roles, name=role_part)
             if not role:
-                await message.channel.send(f"❌ Nie znalazłem rangi: `{role_part if role_part else 'Podaj nazwę'}`")
+                await message.channel.send(f"❌ Nie znalazłem rangi: `{role_part}`")
                 return
-
             if role >= guild.me.top_role:
-                await message.channel.send("❌ Ta ranga jest wyżej niż najwyższa rola bota!")
+                await message.channel.send("❌ Ranga wyżej niż rola bota!")
                 return
-
             try:
                 await target_user.add_roles(role)
-                await message.channel.send(f"✅ Pomyślnie nadano rangę **{role.name}** użytkownikowi {target_user.mention}.")
+                await message.channel.send(f"✅ Nadano rangę **{role.name}** dla {target_user.mention}.")
             except discord.Forbidden:
-                await message.channel.send("❌ Brak uprawnień do edycji tego użytkownika.")
+                await message.channel.send("❌ Brak uprawnień.")
 
-        # === KOMENDA DO USUWANIA RANGI JEDNEJ OSOBIE ===
+        # === KOMENDA !usunrola ===
         if message.content.startswith("!usunrola "):
             if message.author.id not in ADMIN_IDS:
                 return
-
             content_clean = message.content[10:].strip()
             if not message.mentions:
-                await message.channel.send("❌ Musisz oznaczyć użytkownika! Przykład: `!usunrola @Kuba @Ranga`")
+                await message.channel.send("❌ Musisz oznaczyć użytkownika!")
                 return
-
             target_user = message.mentions[0]
             guild = message.guild
-
             role_part = content_clean.replace(target_user.mention, "").strip()
             role_part = role_part.replace(f"<@!{target_user.id}>", "").strip()
             role_part = role_part.replace(f"<@{target_user.id}>", "").strip()
-
-            role = None
-            if message.role_mentions:
-                role = message.role_mentions[0]
-            else:
-                role = discord.utils.get(guild.roles, name=role_part)
-
+            role = message.role_mentions[0] if message.role_mentions else discord.utils.get(guild.roles, name=role_part)
             if not role:
-                await message.channel.send(f"❌ Nie znalazłem rangi: `{role_part if role_part else 'Podaj nazwę'}`")
+                await message.channel.send(f"❌ Nie znalazłem rangi: `{role_part}`")
                 return
-
             if role >= guild.me.top_role:
-                await message.channel.send("❌ Ta ranga jest wyżej niż najwyższa rola bota!")
+                await message.channel.send("❌ Ranga wyżej niż rola bota!")
                 return
-
             try:
                 await target_user.remove_roles(role)
-                await message.channel.send(f"✅ Pomyślnie odebrano rangę **{role.name}** użytkownikowi {target_user.mention}.")
+                await message.channel.send(f"✅ Odebrano rangę **{role.name}** użytkownikowi {target_user.mention}.")
             except discord.Forbidden:
-                await message.channel.send("❌ Brak uprawnień do edycji tego użytkownika.")
+                await message.channel.send("❌ Brak uprawnień.")
 
-        # === KOMENDA DO NADAWANIA RANGI WSZYSTKIM ===
+        # === KOMENDA !rola-wszyscy ===
         if message.content.startswith("!rola-wszyscy"):
             if message.author.id not in ADMIN_IDS:
                 return
-
             args = message.content.split(" ", 1)
             if len(args) < 2:
-                await message.channel.send("Musisz podać nazwę rangi! Przykład: `!rola-wszyscy @Ranga`")
+                await message.channel.send("Podaj nazwę rangi!")
                 return
-
             role_query = args[1].strip()
             guild = message.guild
-            role = None
-
-            if message.role_mentions:
-                role = message.role_mentions[0]
-            else:
-                role = discord.utils.get(guild.roles, name=role_query)
-
+            role = message.role_mentions[0] if message.role_mentions else discord.utils.get(guild.roles, name=role_query)
             if not role:
-                await message.channel.send(f"❌ Nie znalazłem rangi o nazwie lub oznaczeniu: `{role_query}`")
+                await message.channel.send(f"❌ Nie znalazłem rangi: `{role_query}`")
                 return
-
             if role >= guild.me.top_role:
-                await message.channel.send("❌ Ta ranga jest wyżej w ustawieniach Discorda niż najwyższa rola bota! Przesuń bota wyżej.")
+                await message.channel.send("❌ Ranga wyżej niż rola bota!")
                 return
-
-            status_message = await message.channel.send(f"⏳ Rozpoczynam dodawanie rangi **{role.name}** wszystkim użytkownikom...")
+            status_message = await message.channel.send(f"⏳ Dodawanie rangi **{role.name}** wszystkim...")
             all_members = [m for m in guild.members if not m.bot]
             total_members = len(all_members)
             success_count = 0
-
             for i, member in enumerate(all_members):
                 if role not in member.roles:
                     try:
                         await member.add_roles(role)
                         success_count += 1
-                    except discord.Forbidden:
-                        pass
-                    except discord.HTTPException:
-                        await asyncio.sleep(2)
-
+                    except discord.Forbidden: pass
+                    except discord.HTTPException: await asyncio.sleep(2)
                 if i % 5 == 0 or i == total_members - 1:
-                    await status_message.edit(content=f"Postęp: Sprawdzono {i + 1}/{total_members} użytkowników. Dodano rangę dla {success_count} osób...")
+                    await status_message.edit(content=f"Postęp: {i + 1}/{total_members}... Dodano dla {success_count} osób.")
                     await asyncio.sleep(0.5)
+            await status_message.edit(content=f"✨ Zakończono! Dodano rangę **{role.name}** dla {success_count} osób.")
 
-            await status_message.edit(content=f"✨ Zakończono! Pomyślnie dodano rangę **{role.name}** dla {success_count} użytkowników.")
-
-        # === KOMENDA DO USUWANIA RANGI WSZYSTKIM ===
+        # === KOMENDA !usunrola-wszyscy ===
         if message.content.startswith("!usunrola-wszyscy"):
             if message.author.id not in ADMIN_IDS:
                 return
-
             args = message.content.split(" ", 1)
             if len(args) < 2:
-                await message.channel.send("Musisz podać nazwę rangi! Przykład: `!usunrola-wszyscy @Ranga`")
+                await message.channel.send("Podaj nazwę rangi!")
                 return
-
             role_query = args[1].strip()
             guild = message.guild
-            role = None
-
-            if message.role_mentions:
-                role = message.role_mentions[0]
-            else:
-                role = discord.utils.get(guild.roles, name=role_query)
-
+            role = message.role_mentions[0] if message.role_mentions else discord.utils.get(guild.roles, name=role_query)
             if not role:
-                await message.channel.send(f"❌ Nie znalazłem rangi o nazwie lub oznaczeniu: `{role_query}`")
+                await message.channel.send(f"❌ Nie znalazłem rangi: `{role_query}`")
                 return
-
             if role >= guild.me.top_role:
-                await message.channel.send("❌ Nie mogę zarządzać tą rangą, ponieważ jest ona wyżej na liście ról niż mój bot!")
+                await message.channel.send("❌ Ranga wyżej niż rola bota!")
                 return
-
-            status_message = await message.channel.send(f"⏳ Rozpoczynam usuwanie rangi **{role.name}** wszystkim użytkownikom...")
+            status_message = await message.channel.send(f"⏳ Usuwanie rangi **{role.name}** wszystkim...")
             all_members = [m for m in guild.members if not m.bot]
             total_members = len(all_members)
             success_count = 0
-
             for i, member in enumerate(all_members):
                 if role in member.roles:
                     try:
                         await member.remove_roles(role)
                         success_count += 1
-                    except discord.Forbidden:
-                        pass
-                    except discord.HTTPException:
-                        await asyncio.sleep(2)
-
+                    except discord.Forbidden: pass
+                    except discord.HTTPException: await asyncio.sleep(2)
                 if i % 5 == 0 or i == total_members - 1:
-                    await status_message.edit(content=f"Postęp: Sprawdzono {i + 1}/{total_members} użytkowników. Odebrano rangę {success_count} osobom...")
+                    await status_message.edit(content=f"Postęp: {i + 1}/{total_members}... Odebrano od {success_count} osób.")
                     await asyncio.sleep(0.5)
-
-            await status_message.edit(content=f"❌ Zakończono! Pomyślnie odebrano rangę **{role.name}** {success_count} użytkownikom.")
+            await status_message.edit(content=f"❌ Zakończono! Odebrano rangę **{role.name}** {success_count} użytkownikom.")
 
 
 intents = discord.Intents.default()
