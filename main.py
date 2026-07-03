@@ -104,6 +104,7 @@ class MyBot(discord.Client):
             return
 
         TWOJE_ID_DISCORD = 652507356105539585 
+        NAZWA_RANGI = "zweryfikowany ⌊✅⌉"
 
         # === KOMENDA DO TICKETÓW ===
         if message.content == "!ticket":
@@ -118,39 +119,23 @@ class MyBot(discord.Client):
             await message.channel.send(embed=embed, view=TicketButton())
             await message.delete() 
 
-        # === KOMENDA DO NADAWANIA RANGI WSZYSTKIM ===
-        if message.content.startswith("!rola-wszyscy"):
+        # === KOMENDA DO NADAWANIA RANGI ===
+        if message.content == "!rola-wszyscy":
             if message.author.id != TWOJE_ID_DISCORD:
                 return
 
-            # Pobieramy nazwę roli lub wzmiankę z wiadomości
-            args = message.content.split(" ", 1)
-            if len(args) < 2:
-                await message.channel.send("Musisz podać nazwę rangi lub ją oznaczyć! Przykład: `!rola-wszyscy @Gracz`")
-                return
-
-            role_query = args[1].strip()
             guild = message.guild
-            role = None
-
-            # Sprawdzamy czy rola została oznaczona, czy wpisana tekstowo
-            if message.role_mentions:
-                role = message.role_mentions[0]
-            else:
-                role = discord.utils.get(guild.roles, name=role_query)
+            role = discord.utils.get(guild.roles, name=NAZWA_RANGI)
 
             if not role:
-                await message.channel.send(f"Nie znalazłem rangi o nazwie: `{role_query}`")
+                await message.channel.send(f"Nie znalazłem w ustawieniach serwera rangi o nazwie: `{NAZWA_RANGI}`. Upewnij się, czy nazwa jest identyczna.")
                 return
 
-            # Sprawdzamy czy bot ma wystarczająco wysokie uprawnienia do nadania tej roli
             if role >= guild.me.top_role:
-                await message.channel.send("Ta ranga jest wyżej niż najwyższa rola bota! Przesuń rolę bota wyżej w ustawieniach serwera.")
+                await message.channel.send("Ta ranga jest wyżej niż najwyższa rola bota! Przesuń bota wyżej w ustawieniach ról serwera.")
                 return
 
-            status_message = await message.channel.send("Rozpoczynam nadawanie rangi wszystkim użytkownikom. Pobieram listę osób...")
-            
-            # Pobieramy wszystkich członków serwera (wymaga włączonego Server Members Intent)
+            status_message = await message.channel.send("Rozpoczynam nadawanie rangi wszystkim użytkownikom...")
             all_members = [m for m in guild.members if not m.bot]
             total_members = len(all_members)
             success_count = 0
@@ -161,22 +146,57 @@ class MyBot(discord.Client):
                         await member.add_roles(role)
                         success_count += 1
                     except discord.Forbidden:
-                        pass # Brak uprawnień do edycji tego konkretnego użytkownika (np. właściciel)
+                        pass
                     except discord.HTTPException:
-                        await asyncio.sleep(2) # Jeśli Discord nas blokuje, czekamy chwilę
+                        await asyncio.sleep(2)
 
-                # Aktualizujemy status na czacie co 5 osób, żeby nie spamować API
                 if i % 5 == 0 or i == total_members - 1:
-                    await status_message.edit(content=f"Postęp: Sprawdzono {i + 1}/{total_members} użytkowników. Nadano rangę dla {success_count} osób...")
+                    await status_message.edit(content=f"Postęp: Sprawdzono {i + 1}/{total_members} użytkowników. Dodano rangę dla {success_count} osób...")
                     await asyncio.sleep(0.5)
 
             await status_message.edit(content=f"✨ Zakończono! Pomyślnie dodano rangę **{role.name}** dla {success_count} użytkowników.")
 
+        # === KOMENDA DO USUWANIA RANGI ===
+        if message.content == "!usunrola-wszyscy":
+            if message.author.id != TWOJE_ID_DISCORD:
+                return
 
-# Włączamy pobieranie członków serwera w konfiguracji bota
+            guild = message.guild
+            role = discord.utils.get(guild.roles, name=NAZWA_RANGI)
+
+            if not role:
+                await message.channel.send(f"Nie znalazłem w ustawieniach serwera rangi o nazwie: `{NAZWA_RANGI}`.")
+                return
+
+            if role >= guild.me.top_role:
+                await message.channel.send("Nie mogę zarządzać tą rangą, jest za wysoko na liście ról!")
+                return
+
+            status_message = await message.channel.send("Rozpoczynam usuwanie rangi wszystkim użytkownikom...")
+            all_members = [m for m in guild.members if not m.bot]
+            total_members = len(all_members)
+            success_count = 0
+
+            for i, member in enumerate(all_members):
+                if role in member.roles:
+                    try:
+                        await member.remove_roles(role)
+                        success_count += 1
+                    except discord.Forbidden:
+                        pass
+                    except discord.HTTPException:
+                        await asyncio.sleep(2)
+
+                if i % 5 == 0 or i == total_members - 1:
+                    await status_message.edit(content=f"Postęp: Sprawdzono {i + 1}/{total_members} użytkowników. Odebrano rangę {success_count} osobom...")
+                    await asyncio.sleep(0.5)
+
+            await status_message.edit(content=f"❌ Zakończono! Pomyślnie odebrano rangę **{role.name}** {success_count} użytkownikom.")
+
+
 intents = discord.Intents.default()
 intents.message_content = True
-intents.members = True # Ta linijka pozwala botowi widzieć listę użytkowników
+intents.members = True 
 client = MyBot(intents=intents)
 
 if __name__ == "__main__":
