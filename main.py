@@ -98,6 +98,7 @@ class StartPollView(discord.ui.View):
             return
         await interaction.response.send_modal(PollModal())
 
+
 class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
     temat = discord.ui.TextInput(label="Podaj temat zgłoszenia", placeholder="np. Błąd na serwerze / Pytanie...", max_length=100, required=True, style=discord.TextStyle.short)
     opis = discord.ui.TextInput(label="Opisz krótko swoją sprawę", placeholder="Napisz tutaj, w czym możemy Ci pomóc...", style=discord.TextStyle.long, max_length=1000, required=True)
@@ -282,7 +283,7 @@ class MyBot(discord.Client):
 
         ADMIN_IDS = [652507356105539585, 550959315700154368, 590215623259193371]
 
-        # Obsługa komendy !dm @osoba (wiadomosc)
+        # Dodane: obsługa komendy !dm @osoba (wiadomosc)
         if message.content.startswith("!dm "):
             if message.author.id not in ADMIN_IDS:
                 return
@@ -300,52 +301,8 @@ class MyBot(discord.Client):
                 await message.channel.send("❌ Wystąpił błąd przy wysyłaniu wiadomości.")
             return
 
-        # Obsługa komendy !find @osoba
+        # Dodane: obsługa komendy !find @osoba
         if message.content.startswith("!find "):
-            if message.author.id not in ADMIN_IDS:
-                return
-            if not message.mentions:
-                await message.channel.send("❌ Musisz oznaczyć użytkownika!")
-                return
-            target_user = message.mentions[0]
-            member = target_user
-
-            embed = discord.Embed(title="📝 Informacje o użytkowniku", color=discord.Color.blue())
-
-            # Data utworzenia konta
-            account_created = member.created_at.strftime("%Y-%m-%d %H:%M:%S")
-            embed.add_field(name="Data utworzenia konta", value=account_created, inline=False)
-
-            # Data dołączenia do serwera
-            joined_at = member.joined_at.strftime("%Y-%m-%d %H:%M:%S") if member.joined_at else "Brak danych"
-            embed.add_field(name="Data dołączenia do serwera", value=joined_at, inline=False)
-
-            # ID użytkownika
-            embed.add_field(name="ID użytkownika", value=str(member.id), inline=False)
-
-            # Najwyższa rola
-            highest_role = member.top_role.name if member.top_role else "Brak ról"
-            embed.add_field(name="Najwyższa rola", value=highest_role, inline=False)
-
-            # Liczba ról
-            role_count = len(member.roles)
-            embed.add_field(name="Liczba ról", value=str(role_count), inline=False)
-
-            # Status bota
-            status = "Bot" if member.bot else "Użytkownik"
-            embed.add_field(name="Status", value=status, inline=False)
-
-            # Avatar
-            embed.set_thumbnail(url=member.display_avatar.url)
-
-            # Ładny embed
-            embed.set_footer(text=f"Informacje o {member.name}#{member.discriminator}")
-
-            await message.channel.send(embed=embed)
-            return
-
-        # Now, obsługa komendy !info zamiast !find
-        if message.content.startswith("!info "):
             if message.author.id not in ADMIN_IDS:
                 return
             if not message.mentions:
@@ -652,66 +609,13 @@ class MyBot(discord.Client):
             await message.channel.send(embed=embed)
             return
 
-        # Now, obsługa komendy !info zamiast !find
-        if message.content.startswith("!info "):
-            if message.author.id not in ADMIN_IDS:
-                return
-            if not message.mentions:
-                await message.channel.send("❌ Musisz oznaczyć użytkownika!")
-                return
-            target_user = message.mentions[0]
-            member = target_user
-
-            embed = discord.Embed(title="📝 Informacje o użytkowniku", color=discord.Color.blue())
-
-            # Data utworzenia konta
-            account_created = member.created_at.strftime("%Y-%m-%d %H:%M:%S")
-            embed.add_field(name="Data utworzenia konta", value=account_created, inline=False)
-
-            # Data dołączenia do serwera
-            joined_at = member.joined_at.strftime("%Y-%m-%d %H:%M:%S") if member.joined_at else "Brak danych"
-            embed.add_field(name="Data dołączenia do serwera", value=joined_at, inline=False)
-
-            # ID użytkownika
-            embed.add_field(name="ID użytkownika", value=str(member.id), inline=False)
-
-            # Najwyższa rola
-            highest_role = member.top_role.name if member.top_role else "Brak ról"
-            embed.add_field(name="Najwyższa rola", value=highest_role, inline=False)
-
-            # Liczba ról
-            role_count = len(member.roles)
-            embed.add_field(name="Liczba ról", value=str(role_count), inline=False)
-
-            # Status bota
-            status = "Bot" if member.bot else "Użytkownik"
-            embed.add_field(name="Status", value=status, inline=False)
-
-            # Avatar
-            embed.set_thumbnail(url=member.display_avatar.url)
-
-            # Ładny embed
-            embed.set_footer(text=f"Informacje o {member.name}#{member.discriminator}")
-
-            await message.channel.send(embed=embed)
-            return
-
-# Inicjalizacja klienta z intencjami
+# Inicjalizacja klienta
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-client = discord.Client(intents=intents)
+client = MyBot(intents=intents)
 
-@client.event
-async def on_ready():
-    print(f'Logged on as {client.user}!')
-    # Dodanie widoków
-    client.add_view(TicketButton())
-    client.add_view(TicketControlView())
-    client.add_view(StartPollView())
-
-# Podłączenie tokenu i uruchomienie
 if __name__ == "__main__":
     keep_alive()
-    TOKEN = os.environ.get("DISCORD_TOKEN")  # lub wpisz bezpośrednio TOKEN = "twój_token"
+    TOKEN = os.environ.get("DISCORD_TOKEN")
     client.run(TOKEN)
