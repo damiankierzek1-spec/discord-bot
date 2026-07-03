@@ -19,12 +19,27 @@ def keep_alive():
     t.start()
 
 
-class TicketButton(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None) 
+# === FORMULARZ WYSKAKUJĄCY W OKIENKU (MODAL) ===
+class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
+    # Pierwsze pole: Temat
+    temat = discord.ui.TextInput(
+        label="Podaj temat zgłoszenia",
+        placeholder="np. Błąd na serwerze / Pytanie...",
+        max_length=100,
+        required=True,
+        style=discord.TextStyle.short
+    )
+    
+    # Drugie pole: Opis
+    opis = discord.ui.TextInput(
+        label="Opisz krótko swoją sprawę",
+        placeholder="Napisz tutaj, w czym możemy Ci pomóc...",
+        style=discord.TextStyle.long,
+        max_length=1000,
+        required=True
+    )
 
-    @discord.ui.button(label="Stwórz Ticket ✉️", style=discord.ButtonStyle.primary, custom_id="create_ticket_btn")
-    async def button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def on_submit(self, interaction: discord.Interaction):
         guild = interaction.guild
         member = interaction.user
         
@@ -32,7 +47,7 @@ class TicketButton(discord.ui.View):
         
         existing_channel = discord.utils.get(guild.text_channels, name=channel_name)
         if existing_channel:
-            await interaction.response.send_message(f"Ticket został utworzony! Przejdź do: {existing_channel.mention}", ephemeral=True)
+            await interaction.response.send_message(f"Masz już otwarty jeden ticket! Przejdź do: {existing_channel.mention}", ephemeral=True)
             return
 
         overwrites = {
@@ -47,16 +62,31 @@ class TicketButton(discord.ui.View):
 
         ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
         
+        # Tworzymy embed powitalny w nowym kanale, pokazujący dane z formularza
         embed = discord.Embed(
-            title="🎫 Nowe Zgłoszenie",
-            description=f"Witaj {member.mention}! Opisz tutaj swój problem, a administracja odpowie tak szybko, jak to możliwe.\n\nAby zamknąć to zgłoszenie, kliknij przycisk poniżej.",
+            title="🎫 Nowe Zgłoszenie użytkownika",
+            description=f"Witaj {member.mention}! Administracja została powiadomiona o Twoim zgłoszeniu. Odpowiemy tak szybko, jak to możliwe.\n\nAby zamknąć to zgłoszenie, kliknij przycisk poniżej.",
             color=discord.Color.green()
         )
+        embed.add_field(name="📌 Temat:", value=f"```\n{self.temat.value}\n```", inline=False)
+        embed.add_field(name="📝 Opis sprawy:", value=f"```\n{self.opis.value}\n```", inline=False)
         
         await ticket_channel.send(embed=embed, view=CloseTicketButton())
         await interaction.response.send_message(f"Pomyślnie stworzono ticket! Kliknij tutaj: {ticket_channel.mention}", ephemeral=True)
 
 
+# === PRZYCISK URUCHAMIAJĄCY OKIENKO FORMULARZA ===
+class TicketButton(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None) 
+
+    @discord.ui.button(label="Stwórz Ticket ✉️", style=discord.ButtonStyle.primary, custom_id="create_ticket_btn")
+    async def button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Wyświetlamy użytkownikowi wyskakujące okienko z formularzem
+        await interaction.response.send_modal(TicketModal())
+
+
+# === PRZYCISK ZAMYKANIA TICKETU ===
 class CloseTicketButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -83,6 +113,9 @@ class CloseTicketButton(discord.ui.View):
         await channel.edit(overwrites=new_overwrites)
         
         new_name = channel.name.replace("ticket-", "zamkniety-")
+        if not new_name.startswith("zamkniety-"):
+            new_name = f"zamkniety-{new_name}"
+            
         await channel.edit(name=new_name)
         
         closed_embed = discord.Embed(
@@ -103,7 +136,6 @@ class MyBot(discord.Client):
         if message.author == self.user:
             return
 
-        # Lista ID osób, które mogą używać komend bota (Ty + 2 nowych administratorów)
         ADMIN_IDS = [652507356105539585, 550959315700154368, 590215623259193371]
 
         # === KOMENDA !pomoc (LISTA KOMEND) ===
@@ -119,7 +151,7 @@ class MyBot(discord.Client):
             
             embed.add_field(
                 name="📩 Tickety", 
-                value="`!ticket` — dodaje panel ticket na kanał ( z reguły nie będziemy tego tam zmieniać czy dodawac, ale może wpadniemy na pomysł żeby coś tam zmienić ;D ).", 
+                value="`!ticket` — dodaje panel ticket na kanał (otwiera formularz zgłoszeniowy w wyskakującym okienku).", 
                 inline=False
             )
             embed.add_field(
@@ -145,7 +177,7 @@ class MyBot(discord.Client):
                 
             embed = discord.Embed(
                 title="📩 ticket",
-                description="Potrzebujesz pomocy administracji? Chcesz zgłosić błąd lub osobe?\n\nKliknij przycisk poniżej, aby otworzyć prywatny kanał z adminsitracją serwera.",
+                description="Potrzebujesz pomocy administracji? Chcesz zgłosić błąd lub osobę?\n\nKliknij przycisk poniżej, aby wypełnić krótki formularz i otworzyć prywatny kanał z administracją serwera.",
                 color=discord.Color.blue()
             )
             await message.channel.send(embed=embed, view=TicketButton())
