@@ -47,27 +47,33 @@ class PollModal(discord.ui.Modal, title="📊 Tworzenie nowej ankiety"):
 
     async def on_submit(self, interaction: discord.Interaction):
         embed = discord.Embed(
-            title=f"📊 ANKIETA: {self.pytanie.value}",
-            description=f"Oddaj swój głos za pomocą przycisków poniżej!\n\n"
-                        f"🅰️ **{self.opcja_a.value}** — `0` głosów (0%)\n"
-                        f"🅱️ **{self.opcja_b.value}** — `0` głosów (0%)",
-            color=discord.Color.purple()
+            title=f"📊 {self.pytanie.value}",
+            description="Oddaj swój głos klikając w odpowiedni przycisk poniżej!\n\n"
+                        f"🅰️ **{self.opcja_a.value}**\n`░░░░░░░░░░` **0%** (0 głosów)\n\n"
+                        f"🅱️ **{self.opcja_b.value}**\n`░░░░░░░░░░` **0%** (0 głosów)\n\n"
+                        f"👥 **Suma oddanych głosów:** `0`",
+            color=discord.Color.brand_green()
         )
-        embed.set_footer(text=f"Ankieta stworzona przez: {interaction.user.name}")
+        embed.set_footer(text=f"Ankieta utworzona przez: {interaction.user.name}", icon_url=interaction.user.display_avatar.url)
         
         view = PollVotesView(opt_a=self.opcja_a.value, opt_b=self.opcja_b.value)
         await interaction.channel.send(embed=embed, view=view)
-        await interaction.response.send_message("✅ Ankieta została pomyślnie utworzona!", ephemeral=True)
+        await interaction.response.send_message("✅ Ankieta została pomyślnie wygenerowana na kanale!", ephemeral=True)
 
 
-# === SYSTEM GŁOSOWANIA W ANKIECIE (PRZYCISKI) ===
+# === SYSTEM GŁOSOWANIA W ANKIECIE (PRZYCISKI I PASKI POSTĘPU) ===
 class PollVotesView(discord.ui.View):
     def __init__(self, opt_a, opt_b):
         super().__init__(timeout=None)
         self.opt_a_text = opt_a
         self.opt_b_text = opt_b
-        self.votes_a = set()  # Zbiór przechowujący ID osób głosujących na A
-        self.votes_b = set()  # Zbiór przechowujący ID osób głosujących na B
+        self.votes_a = set() 
+        self.votes_b = set() 
+
+    def get_progress_bar(self, percentage):
+        filled = int(percentage // 10)
+        empty = 10 - filled
+        return "█" * filled + "░" * empty
 
     async def update_poll_embed(self, interaction: discord.Interaction):
         total_votes = len(self.votes_a) + len(self.votes_b)
@@ -75,11 +81,15 @@ class PollVotesView(discord.ui.View):
         pct_a = (len(self.votes_a) / total_votes * 100) if total_votes > 0 else 0
         pct_b = (len(self.votes_b) / total_votes * 100) if total_votes > 0 else 0
         
+        bar_a = self.get_progress_bar(pct_a)
+        bar_b = self.get_progress_bar(pct_b)
+        
         embed = interaction.message.embeds[0]
         embed.description = (
-            f"Oddaj swój głos za pomocą przycisków poniżej!\n\n"
-            f"🅰️ **{self.opt_a_text}** — `{len(self.votes_a)}` głosów ({pct_a:.0f}%)\n"
-            f"🅱️ **{self.opt_b_text}** — `{len(self.votes_b)}` głosów ({pct_b:.0f}%)"
+            f"Oddaj swój głos klikając w odpowiedni przycisk poniżej!\n\n"
+            f"🅰️ **{self.opt_a_text}**\n`{bar_a}` **{pct_a:.0f}%** ({len(self.votes_a)} głosów)\n\n"
+            f"🅱️ **{self.opt_b_text}**\n`{bar_b}` **{pct_b:.0f}%** ({len(self.votes_b)} głosów)\n\n"
+            f"👥 **Suma oddanych głosów:** `{total_votes}`"
         )
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -87,21 +97,35 @@ class PollVotesView(discord.ui.View):
     async def button_a_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_id = interaction.user.id
         if user_id in self.votes_a:
-            self.votes_a.remove(user_id)  # Cofnięcie głosu
+            self.votes_a.remove(user_id)  
         else:
             self.votes_a.add(user_id)
-            self.votes_b.discard(user_id) # Usunięcie z drugiej opcji, jeśli tam był
+            self.votes_b.discard(user_id) 
         await self.update_poll_embed(interaction)
 
-    @discord.ui.button(label="Opcja B 🅱️", style=discord.ButtonStyle.primary, custom_id="poll_btn_b")
+    @discord.ui.button(label="Opcja B 🅱️", style=discord.ButtonStyle.secondary, custom_id="poll_btn_b")
     async def button_b_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_id = interaction.user.id
         if user_id in self.votes_b:
-            self.votes_b.remove(user_id)  # Cofnięcie głosu
+            self.votes_b.remove(user_id)  
         else:
             self.votes_b.add(user_id)
-            self.votes_a.discard(user_id) # Usunięcie z pierwszej opcji, jeśli tam był
+            self.votes_a.discard(user_id) 
         await self.update_poll_embed(interaction)
+
+
+# === STAŁY PRZYCISK DO TWORZENIA ANKIET ===
+class StartPollView(discord.ui.View):
+    def __init__(self): 
+        super().__init__(timeout=None)
+        
+    @discord.ui.button(label="Stwórz Nową Ankietę 📊", style=discord.ButtonStyle.success, custom_id="start_poll_btn_persistent")
+    async def start_poll(self, interaction: discord.Interaction, button: discord.ui.Button):
+        ADMIN_IDS = [652507356105539585, 550959315700154368, 590215623259193371]
+        if interaction.user.id not in ADMIN_IDS:
+            await interaction.response.send_message("❌ Brak uprawnień do tworzenia ankiet.", ephemeral=True)
+            return
+        await interaction.response.send_modal(PollModal())
 
 
 # === FORMULARZ WYSKAKUJĄCY W OKIENKU TICKETU (MODAL) ===
@@ -283,8 +307,10 @@ class FeedbackView(discord.ui.View):
 class MyBot(discord.Client):
     async def on_ready(self):
         print(f'Logged on as {self.user}!')
+        # Rejestrujemy stałe widoki (aby przyciski działały zawsze, nawet po restarcie)
         self.add_view(TicketButton())
         self.add_view(TicketControlView())
+        self.add_view(StartPollView())
 
     async def on_message(self, message):
         if message.author == self.user:
@@ -303,7 +329,7 @@ class MyBot(discord.Client):
                 color=discord.Color.dark_gold()
             )
             embed.add_field(name="📩 Tickety", value="`!ticket` — dodaje panel ticket na kanał.", inline=False)
-            embed.add_field(name="📊 Ankiety", value="`!ankieta` — otwiera kreator ankiety z przyciskami (Modal).", inline=False)
+            embed.add_field(name="📊 Ankiety", value="`!ankieta` — dodaje stały panel tworzenia ankiet.", inline=False)
             embed.add_field(name="👤 Rangi ", value="`!rola @osoba @ranga` / `!usunrola @osoba @ranga`", inline=False)
             embed.add_field(name="👥 Masowe rangi", value="`!rola-wszyscy @ranga` / `!usunrola-wszyscy @ranga`", inline=False)
             embed.set_footer(text="Dostęp: @.zbyszek. , @kubus3368 , @steryd2378 .")
@@ -316,17 +342,13 @@ class MyBot(discord.Client):
             if message.author.id not in ADMIN_IDS:
                 return
             
-            class StartPollView(discord.ui.View):
-                def __init__(self): super().__init__(timeout=60)
-                @discord.ui.button(label="Otwórz Kreator Ankiety 📊", style=discord.ButtonStyle.green)
-                async def start_poll(self, interaction: discord.Interaction, button: discord.ui.Button):
-                    if interaction.user.id not in ADMIN_IDS:
-                        await interaction.response.send_message("Brak uprawnień.", ephemeral=True)
-                        return
-                    await interaction.response.send_modal(PollModal())
-                    self.stop()
+            embed = discord.Embed(
+                title="📊 Panel Zarządzania Ankietami",
+                description="Kliknij przycisk poniżej, aby otworzyć formularz i wygenerować nową ankietę.\nMożesz używać tego przycisku do tworzenia wielu ankiet!",
+                color=discord.Color.dark_purple()
+            )
             
-            await message.channel.send("Kliknij przycisk poniżej, aby otworzyć wyskakujące okienko nowej ankiety:", view=StartPollView(), delete_after=60)
+            await message.channel.send(embed=embed, view=StartPollView())
             await message.delete()
 
         # === KOMENDA DO TICKETÓW ===
