@@ -20,39 +20,32 @@ def keep_alive():
 # === KLASA PRZYCISKU DO OTWIERANIA TICKETÓW ===
 class TicketButton(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=None) # Przycisk działa na stałe, nawet po restarcie bota
+        super().__init__(timeout=None) 
 
     @discord.ui.button(label="Stwórz Ticket ✉️", style=discord.ButtonStyle.primary, custom_id="create_ticket_btn")
     async def button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
         member = interaction.user
         
-        # Nazwa nowego kanału ticketu
         channel_name = f"ticket-{member.name}"
         
-        # Sprawdzamy, czy taki kanał już przypadkiem nie istnieje
         existing_channel = discord.utils.get(guild.text_channels, name=channel_name)
         if existing_channel:
             await interaction.response.send_message(f"Masz już otwarty ticket! Idź do: {existing_channel.mention}", ephemeral=True)
             return
 
-        # Uprawnienia: nikt nie widzi kanału oprócz administracji i osoby otwierającej ticket
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             member: discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True, attach_files=True),
             guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
         
-        # Jeśli masz specjalną rolę dla adminów (np. "Admin" lub "Moderator"), bot automatycznie da im dostęp
-        # Możesz podmienić nazwę roli poniżej, jeśli masz inną na serwerze:
         admin_role = discord.utils.get(guild.roles, name="Admin")
         if admin_role:
             overwrites[admin_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
-        # Tworzenie kanału
         ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
         
-        # Wiadomość powitalna w nowym tickecie z przyciskiem do zamykania go
         embed = discord.Embed(
             title="🎫 Nowe Zgłoszenie",
             description=f"Witaj {member.mention}! Opisz tutaj swój problem, a administracja odpowie tak szybko, jak to możliwe.\n\nAby zamknąć to zgłoszenie, kliknij przycisk poniżej.",
@@ -78,19 +71,21 @@ class CloseTicketButton(discord.ui.View):
 class MyBot(discord.Client):
     async def on_ready(self):
         print(f'Logged on as {self.user}!')
-        # Rejestrujemy przyciski, żeby bot pamiętał o nich po restartach hostingu
         self.add_view(TicketButton())
         self.add_view(CloseTicketButton())
 
     async def on_message(self, message):
-        # Ignoruj wiadomości bota
         if message.author == self.user:
             return
 
-        # Komenda do wysłania panelu ticketów (tylko dla osób z uprawnieniami administratora)
-        if message.content == "!setup-tickety":
-            if not message.author.guild_permissions.administrator:
-                await message.channel.send("Nie masz uprawnień administratora, aby to zrobić!")
+        # Komenda !ticket
+        if message.content == "!ticket":
+            
+            # Twoje unikalne ID Discord
+            TWOJE_ID_DISCORD = 652507356105539585 
+            
+            # Sprawdzanie, czy osoba używająca komendy to Ty
+            if message.author.id != TWOJE_ID_DISCORD:
                 return
                 
             embed = discord.Embed(
@@ -99,7 +94,7 @@ class MyBot(discord.Client):
                 color=discord.Color.blue()
             )
             await message.channel.send(embed=embed, view=TicketButton())
-            await message.delete() # Usuwa komendę użytkownika, żeby był porządek
+            await message.delete() 
 
 intents = discord.Intents.default()
 intents.message_content = True
