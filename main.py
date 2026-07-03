@@ -104,7 +104,6 @@ class MyBot(discord.Client):
             return
 
         TWOJE_ID_DISCORD = 652507356105539585 
-        NAZWA_RANGI = "zweryfikowany ⌊✅⌉"
 
         # === KOMENDA DO TICKETÓW ===
         if message.content == "!ticket":
@@ -120,22 +119,33 @@ class MyBot(discord.Client):
             await message.delete() 
 
         # === KOMENDA DO NADAWANIA RANGI ===
-        if message.content == "!rola-wszyscy":
+        if message.content.startswith("!rola-wszyscy"):
             if message.author.id != TWOJE_ID_DISCORD:
                 return
 
+            args = message.content.split(" ", 1)
+            if len(args) < 2:
+                await message.channel.send("Musisz podać nazwę rangi! Przykład: `!rola-wszyscy @Ranga` lub `!rola-wszyscy Nazwa`")
+                return
+
+            role_query = args[1].strip()
             guild = message.guild
-            role = discord.utils.get(guild.roles, name=NAZWA_RANGI)
+            role = None
+
+            if message.role_mentions:
+                role = message.role_mentions[0]
+            else:
+                role = discord.utils.get(guild.roles, name=role_query)
 
             if not role:
-                await message.channel.send(f"Nie znalazłem w ustawieniach serwera rangi o nazwie: `{NAZWA_RANGI}`. Upewnij się, czy nazwa jest identyczna.")
+                await message.channel.send(f"❌ Nie znalazłem rangi o nazwie lub oznaczeniu: `{role_query}`")
                 return
 
             if role >= guild.me.top_role:
-                await message.channel.send("Ta ranga jest wyżej niż najwyższa rola bota! Przesuń bota wyżej w ustawieniach ról serwera.")
+                await message.channel.send("❌ Ta ranga jest wyżej w ustawieniach Discorda niż najwyższa rola bota! Przesuń bota wyżej.")
                 return
 
-            status_message = await message.channel.send("Rozpoczynam nadawanie rangi wszystkim użytkownikom...")
+            status_message = await message.channel.send(f"⏳ Rozpoczynam dodawanie rangi **{role.name}** wszystkim użytkownikom...")
             all_members = [m for m in guild.members if not m.bot]
             total_members = len(all_members)
             success_count = 0
@@ -157,22 +167,35 @@ class MyBot(discord.Client):
             await status_message.edit(content=f"✨ Zakończono! Pomyślnie dodano rangę **{role.name}** dla {success_count} użytkowników.")
 
         # === KOMENDA DO USUWANIA RANGI ===
-        if message.content == "!usunrola-wszyscy":
+        if message.content.startswith("!usunrola-wszyscy"):
             if message.author.id != TWOJE_ID_DISCORD:
                 return
 
+            args = message.content.split(" ", 1)
+            if len(args) < 2:
+                await message.channel.send("Musisz podać nazwę rangi! Przykład: `!usunrola-wszyscy @Ranga` lub `!usunrola-wszyscy Nazwa`")
+                return
+
+            role_query = args[1].strip()
             guild = message.guild
-            role = discord.utils.get(guild.roles, name=NAZWA_RANGI)
+            role = None
+
+            # Sprawdzanie oznaczania
+            if message.role_mentions:
+                role = message.role_mentions[0]
+            else:
+                # Szukanie po nazwie tekstowej
+                role = discord.utils.get(guild.roles, name=role_query)
 
             if not role:
-                await message.channel.send(f"Nie znalazłem w ustawieniach serwera rangi o nazwie: `{NAZWA_RANGI}`.")
+                await message.channel.send(f"❌ Nie znalazłem rangi o nazwie lub oznaczeniu: `{role_query}`")
                 return
 
             if role >= guild.me.top_role:
-                await message.channel.send("Nie mogę zarządzać tą rangą, jest za wysoko na liście ról!")
+                await message.channel.send("❌ Nie mogę zarządzać tą rangą, ponieważ jest ona wyżej na liście ról niż mój bot!")
                 return
 
-            status_message = await message.channel.send("Rozpoczynam usuwanie rangi wszystkim użytkownikom...")
+            status_message = await message.channel.send(f"⏳ Rozpoczynam usuwanie rangi **{role.name}** wszystkim użytkownikom...")
             all_members = [m for m in guild.members if not m.bot]
             total_members = len(all_members)
             success_count = 0
