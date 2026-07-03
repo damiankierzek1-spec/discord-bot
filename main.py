@@ -109,7 +109,7 @@ class MyBot(discord.Client):
                 return
                 
             embed = discord.Embed(
-                title="📩 ticket",
+                title="📩 Ticket",
                 description="Potrzebujesz pomocy administracji? Chcesz zgłosić błąd lub osobe?\n\nKliknij przycisk poniżej, aby otworzyć prywatny kanał z adminsitracją serwera.",
                 color=discord.Color.blue()
             )
