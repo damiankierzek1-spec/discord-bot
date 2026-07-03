@@ -20,40 +20,19 @@ def keep_alive():
     t = Thread(target=run_web_server)
     t.start()
 
-# === FORMULARZ WYSKAKUJĄCY DLA ANKIETY (MODAL) ===
+# ---------------------
+# ANKIETY
+# ---------------------
 class PollModal(discord.ui.Modal, title="📊 Tworzenie nowej ankiety"):
-    pytanie = discord.ui.TextInput(
-        label="Wpisz pytanie ankiety",
-        placeholder="np. Gramy dzisiaj w turniej?",
-        max_length=256,
-        required=True,
-        style=discord.TextStyle.short
-    )
-    opcja_a = discord.ui.TextInput(
-        label="Opcja A",
-        placeholder="np. Tak, jasne! 🔥",
-        max_length=100,
-        required=True,
-        style=discord.TextStyle.short
-    )
-    opcja_b = discord.ui.TextInput(
-        label="Opcja B",
-        placeholder="np. Nie, brak czasu ❌",
-        max_length=100,
-        required=True,
-        style=discord.TextStyle.short
-    )
+    pytanie = discord.ui.TextInput(label="Wpisz pytanie ankiety", placeholder="np. Gramy dzisiaj w turniej?", max_length=256, required=True, style=discord.TextStyle.short)
+    opcja_a = discord.ui.TextInput(label="Opcja A", placeholder="np. Tak, jasne! 🔥", max_length=100, required=True, style=discord.TextStyle.short)
+    opcja_b = discord.ui.TextInput(label="Opcja B", placeholder="np. Nie, brak czasu ❌", max_length=100, required=True, style=discord.TextStyle.short)
 
     async def on_submit(self, interaction: discord.Interaction):
-        view = PollVotesView(
-            question=self.pytanie.value,
-            opt_a=self.opcja_a.value,
-            opt_b=self.opcja_b.value
-        )
+        view = PollVotesView(question=self.pytanie.value, opt_a=self.opcja_a.value, opt_b=self.opcja_b.value)
         await interaction.channel.send(embed=view.build_embed(), view=view)
         await interaction.response.send_message("✅ Ankieta została pomyślnie wygenerowana na kanale!", ephemeral=True)
 
-# === SYSTEM GŁOSOWANIA W ANKIECIE ===
 class PollVotesView(discord.ui.View):
     def __init__(self, question, opt_a, opt_b):
         super().__init__(timeout=None)
@@ -122,22 +101,12 @@ class StartPollView(discord.ui.View):
             return
         await interaction.response.send_modal(PollModal())
 
-# === FORMULARZ WYSKAKUJĄCY W OKIENKU TICKETA ===
+# ---------------------
+# TICKET SYSTEM
+# ---------------------
 class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
-    temat = discord.ui.TextInput(
-        label="Podaj temat zgłoszenia",
-        placeholder="np. Błąd na serwerze / Pytanie...",
-        max_length=100,
-        required=True,
-        style=discord.TextStyle.short
-    )
-    opis = discord.ui.TextInput(
-        label="Opisz krótko swoją sprawę",
-        placeholder="Napisz tutaj, w czym możemy Ci pomóc...",
-        style=discord.TextStyle.long,
-        max_length=1000,
-        required=True
-    )
+    temat = discord.ui.TextInput(label="Podaj temat zgłoszenia", placeholder="np. Błąd na serwerze / Pytanie...", max_length=100, required=True, style=discord.TextStyle.short)
+    opis = discord.ui.TextInput(label="Opisz krótko swoją sprawę", placeholder="Napisz tutaj, w czym możemy Ci pomóc...", style=discord.TextStyle.long, max_length=1000, required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
         guild = interaction.guild
@@ -209,18 +178,9 @@ class TicketControlView(discord.ui.View):
             child.disabled = True
         await interaction.response.edit_message(view=self)
 
-        feedback_view = FeedbackView(
-            claimed_by=self.claimed_by,
-            closer=interaction.user,
-            ticket_topic=self.ticket_topic,
-            ticket_desc=self.ticket_desc
-        )
+        feedback_view = FeedbackView(claimed_by=self.claimed_by, closer=interaction.user, ticket_topic=self.ticket_topic, ticket_desc=self.ticket_desc)
 
-        embed = discord.Embed(
-            title="⭐ Oceń pomoc administracji",
-            description="Dziękujemy za skorzystanie z systemu zgłoszeń! Prosimy o wybranie oceny adekwatnej do udzielonej pomocy przez administrację.",
-            color=discord.Color.gold()
-        )
+        embed = discord.Embed(title="⭐ Oceń pomoc administracji", description="Dziękujemy za skorzystanie z systemu zgłoszeń! Prosimy o wybranie oceny.", color=discord.Color.gold())
         await interaction.channel.send(embed=embed, view=feedback_view)
 
 class FeedbackView(discord.ui.View):
@@ -256,12 +216,7 @@ class FeedbackView(discord.ui.View):
         log_channel = discord.utils.get(guild.text_channels, name="logi-ticketow")
 
         if log_channel:
-            log_embed = discord.Embed(
-                title="🔒 Archiwum Zgłoszenia",
-                description=f"Kanał **{channel.name}** został pomyślnie zamknięty.",
-                color=discord.Color.red(),
-                timestamp=discord.utils.utcnow()
-            )
+            log_embed = discord.Embed(title="🔒 Archiwum Zgłoszenia", description=f"Kanał **{channel.name}** został pomyślnie zamknięty.", color=discord.Color.red(), timestamp=discord.utils.utcnow())
             log_embed.add_field(name="🛠️ Obsługujący admin:", value=self.claimed_by.mention if self.claimed_by else "`Nikt`", inline=True)
             log_embed.add_field(name="🔒 Zamknął:", value=self.closer.mention, inline=True)
             log_embed.add_field(name="⭐ Ocena pracy:", value=f"**{self.rating}**", inline=True)
@@ -302,23 +257,13 @@ class FeedbackView(discord.ui.View):
     async def star5(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_rating(interaction, "⭐⭐⭐⭐⭐ (5/5)")
 
-# === STAŁY PRZYCISK DO TWORZENIA ANKIET ===
-class StartPollView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="Stwórz Nową Ankietę 📊", style=discord.ButtonStyle.success, custom_id="start_poll_btn_persistent")
-    async def start_poll(self, interaction: discord.Interaction, button: discord.ui.Button):
-        ADMIN_IDS = [652507356105539585, 550959315700154368, 590215623259193371]
-        if interaction.user.id not in ADMIN_IDS:
-            await interaction.response.send_message("❌ Brak uprawnień do tworzenia ankiet.", ephemeral=True)
-            return
-        await interaction.response.send_modal(PollModal())
-
-# === BOT ===
+# ---------------------
+# BOT
+# ---------------------
 class MyBot(discord.Client):
     async def on_ready(self):
         print(f'Logged on as {self.user}!')
+        # rejestrujemy persistent views (przy restarcie trzeba je dodać ponownie)
         self.add_view(TicketButton())
         self.add_view(TicketControlView())
         self.add_view(StartPollView())
@@ -326,11 +271,7 @@ class MyBot(discord.Client):
     async def on_member_join(self, member):
         channel = discord.utils.get(member.guild.text_channels, name="⌊przyloty⌉⌊🌆⌉")
         if channel:
-            embed = discord.Embed(
-                title="🌆 Witaj na serwerze!",
-                description=f"{member.mention} właśnie do nas dołączył!\nMiło Cię widzieć!",
-                color=discord.Color.green()
-            )
+            embed = discord.Embed(title="🌆 Witaj na serwerze!", description=f"{member.mention} właśnie do nas dołączył!\nMiło Cię widzieć!", color=discord.Color.green())
             embed.set_thumbnail(url=member.display_avatar.url)
             embed.set_footer(text=f"Teraz mamy {member.guild.member_count} osób.")
             await channel.send(embed=embed)
@@ -338,11 +279,7 @@ class MyBot(discord.Client):
     async def on_member_remove(self, member):
         channel = discord.utils.get(member.guild.text_channels, name="⌊odloty⌉⌊🌇⌉")
         if channel:
-            embed = discord.Embed(
-                title="🌇 Ktoś odleciał...",
-                description=f"**{member.name}** opuścił serwer.",
-                color=discord.Color.red()
-            )
+            embed = discord.Embed(title="🌇 Ktoś odleciał...", description=f"**{member.name}** opuścił serwer.", color=discord.Color.red())
             embed.set_thumbnail(url=member.display_avatar.url)
             embed.set_footer(text=f"Teraz mamy {member.guild.member_count} osób.")
             await channel.send(embed=embed)
@@ -353,109 +290,44 @@ class MyBot(discord.Client):
 
         ADMIN_IDS = [652507356105539585, 550959315700154368, 590215623259193371]
 
+        # ---- pomoc (odświeżona)
         if message.content == "!pomoc":
             if message.author.id not in ADMIN_IDS:
                 return
 
-            embed = discord.Embed(
-                title="⚙️ Panel Zarządzania Botem",
-                description="Przejrzysta lista komend administracyjnych dostępnych na serwerze.",
-                color=discord.Color.dark_gold()
-            )
+            embed = discord.Embed(title="⚙️ Panel Zarządzania Botem", description="Przejrzysta lista komend administracyjnych dostępnych na serwerze.", color=discord.Color.dark_gold())
 
-            embed.add_field(
-                name="📩 Tickety",
-                value=(
-                    "`!ticket`\n"
-                    "• wysyła panel do tworzenia ticketów.\n"
-                    "`Stwórz Ticket ✉️`\n"
-                    "• otwiera formularz zgłoszenia."
-                ),
-                inline=False
-            )
-
-            embed.add_field(
-                name="📊 Ankiety",
-                value=(
-                    "`!ankieta`\n"
-                    "• wysyła panel tworzenia ankiet.\n"
-                    "`Stwórz Nową Ankietę 📊`\n"
-                    "• otwiera formularz ankiety."
-                ),
-                inline=False
-            )
-
-            embed.add_field(
-                name="👤 Rangi",
-                value=(
-                    "`!rola @osoba @ranga`\n"
-                    "• nadaje rangę użytkownikowi.\n"
-                    "`!usunrola @osoba @ranga`\n"
-                    "• odbiera rangę użytkownikowi."
-                ),
-                inline=False
-            )
-
-            embed.add_field(
-                name="👥 Masowe rangi",
-                value=(
-                    "`!rola-wszyscy @ranga`\n"
-                    "• nadaje rangę wszystkim użytkownikom.\n"
-                    "`!usunrola-wszyscy @ranga`\n"
-                    "• odbiera rangę wszystkim użytkownikom."
-                ),
-                inline=False
-            )
-
-            embed.add_field(
-                name="🌆 Powitania i pożegnania",
-                value=(
-                    "`⌊przyloty⌉⌊🌆⌉`\n"
-                    "• kanał na powitania.\n"
-                    "`⌊odloty⌉⌊🌇⌉`\n"
-                    "• kanał na pożegnania."
-                ),
-                inline=False
-            )
-
-            embed.add_field(
-                name="🛠️ Wskazówki",
-                value=(
-                    "• Bot potrzebuje uprawnień do zarządzania rolami.\n"
-                    "• Kanały powitalne muszą istnieć pod dokładną nazwą.\n"
-                    "• Ankiety i tickety są oparte o przyciski."
-                ),
-                inline=False
-            )
+            embed.add_field(name="📩 Tickety", value=("`!ticket`\n• wysyła panel do tworzenia ticketów.\n`Stwórz Ticket ✉️`\n• otwiera formularz zgłoszenia."), inline=False)
+            embed.add_field(name="📊 Ankiety", value=("`!ankieta`\n• wysyła panel tworzenia ankiet.\n`Stwórz Nową Ankietę 📊`\n• otwiera formularz ankiety."), inline=False)
+            embed.add_field(name="👤 Rangi", value=("`!rola @osoba @ranga`\n• nadaje rangę użytkownikowi.\n`!usunrola @osoba @ranga`\n• odbiera rangę użytkownikowi."), inline=False)
+            embed.add_field(name="👥 Masowe rangi", value=("`!rola-wszyscy @ranga`\n• nadaje rangę wszystkim użytkownikom.\n`!usunrola-wszyscy @ranga`\n• odbiera rangę wszystkim użytkownikom."), inline=False)
+            embed.add_field(name="🌆 Powitania i pożegnania", value=("`⌊przyloty⌉⌊🌆⌉` • kanał na powitania.\n`⌊odloty⌉⌊🌇⌉` • kanał na pożegnania."), inline=False)
+            embed.add_field(name="🛠️ Wskazówki", value=("• Bot potrzebuje uprawnień do zarządzania rolami.\n• Kanały powitalne muszą istnieć pod dokładną nazwą.\n• Ankiety i tickety są oparte o przyciski."), inline=False)
 
             embed.set_footer(text="Dostęp: @.zbyszek. , @kubus3368 , @steryd2378 .")
             await message.channel.send(embed=embed)
             await message.delete()
+            return
 
+        # ---- ankieta panel
         if message.content == "!ankieta":
             if message.author.id not in ADMIN_IDS:
                 return
-
-            embed = discord.Embed(
-                title="📊 Panel Zarządzania Ankietami",
-                description="Kliknij przycisk poniżej, aby otworzyć formularz i wygenerować nową ankietę.",
-                color=discord.Color.dark_purple()
-            )
-
+            embed = discord.Embed(title="📊 Panel Zarządzania Ankietami", description="Kliknij przycisk poniżej, aby otworzyć formularz i wygenerować nową ankietę.", color=discord.Color.dark_purple())
             await message.channel.send(embed=embed, view=StartPollView())
             await message.delete()
+            return
 
+        # ---- ticket panel
         if message.content == "!ticket":
             if message.author.id not in ADMIN_IDS:
                 return
-            embed = discord.Embed(
-                title="📩 ticket",
-                description="Potrzebujesz pomocy administracji? Chcesz zgłosić błąd lub osobę?\n\nKliknij przycisk poniżej, aby wypełnić krótki formularz.",
-                color=discord.Color.blue()
-            )
+            embed = discord.Embed(title="📩 ticket", description="Potrzebujesz pomocy administracji? Kliknij przycisk poniżej, aby wypełnić krótki formularz.", color=discord.Color.blue())
             await message.channel.send(embed=embed, view=TicketButton())
             await message.delete()
+            return
 
+        # ---- role pojedyncze
         if message.content.startswith("!rola "):
             if message.author.id not in ADMIN_IDS:
                 return
@@ -480,7 +352,9 @@ class MyBot(discord.Client):
                 await message.channel.send(f"✅ Nadano rangę **{role.name}** dla {target_user.mention}.")
             except discord.Forbidden:
                 await message.channel.send("❌ Brak uprawnień.")
+            return
 
+        # ---- usun ranga pojedyncza
         if message.content.startswith("!usunrola "):
             if message.author.id not in ADMIN_IDS:
                 return
@@ -505,7 +379,9 @@ class MyBot(discord.Client):
                 await message.channel.send(f"✅ Odebrano rangę **{role.name}** użytkownikowi {target_user.mention}.")
             except discord.Forbidden:
                 await message.channel.send("❌ Brak uprawnień.")
+            return
 
+        # ---- masowe dodawanie ról
         if message.content.startswith("!rola-wszyscy"):
             if message.author.id not in ADMIN_IDS:
                 return
@@ -539,7 +415,9 @@ class MyBot(discord.Client):
                     await status_message.edit(content=f"Postęp: {i + 1}/{total_members}... Dodano dla {success_count} osób.")
                     await asyncio.sleep(0.5)
             await status_message.edit(content=f"✨ Zakończono! Dodano rangę **{role.name}** dla {success_count} osób.")
+            return
 
+        # ---- masowe usuwanie ról
         if message.content.startswith("!usunrola-wszyscy"):
             if message.author.id not in ADMIN_IDS:
                 return
@@ -573,7 +451,54 @@ class MyBot(discord.Client):
                     await status_message.edit(content=f"Postęp: {i + 1}/{total_members}... Odebrano od {success_count} osób.")
                     await asyncio.sleep(0.5)
             await status_message.edit(content=f"❌ Zakończono! Odebrano rangę **{role.name}** {success_count} użytkownikom.")
+            return
 
+        # ---- TESTY KANAŁÓW POWITALNYCH / POŻEGNALNYCH
+        if message.content == "!test-przyloty":
+            if message.author.id not in ADMIN_IDS:
+                return
+            channel = discord.utils.get(message.guild.text_channels, name="⌊przyloty⌉⌊🌆⌉")
+            if not channel:
+                await message.channel.send("❌ Nie znalazłem kanału `⌊przyloty⌉⌊🌆⌉`.")
+                return
+            embed = discord.Embed(title="🌆 TEST PRZYLOTÓW", description="To jest testowy komunikat powitalny.", color=discord.Color.green())
+            embed.set_thumbnail(url=message.author.display_avatar.url)
+            await channel.send(embed=embed)
+            await message.channel.send("✅ Wysłano test na kanał przylotów.")
+            await message.delete()
+            return
+
+        if message.content == "!test-odloty":
+            if message.author.id not in ADMIN_IDS:
+                return
+            channel = discord.utils.get(message.guild.text_channels, name="⌊odloty⌉⌊🌇⌉")
+            if not channel:
+                await message.channel.send("❌ Nie znalazłem kanału `⌊odloty⌉⌊🌇⌉`.")
+                return
+            embed = discord.Embed(title="🌇 TEST ODLOTÓW", description="To jest testowy komunikat pożegnalny.", color=discord.Color.red())
+            embed.set_thumbnail(url=message.author.display_avatar.url)
+            await channel.send(embed=embed)
+            await message.channel.send("✅ Wysłano test na kanał odlotów.")
+            await message.delete()
+            return
+
+        if message.content == "!test-witamy":
+            if message.author.id not in ADMIN_IDS:
+                return
+            # wyślij oba testy
+            ch1 = discord.utils.get(message.guild.text_channels, name="⌊przyloty⌉⌊🌆⌉")
+            ch2 = discord.utils.get(message.guild.text_channels, name="⌊odloty⌉⌊🌇⌉")
+            if ch1:
+                e1 = discord.Embed(title="🌆 TEST PRZYLOTÓW", description="Test powitalny.", color=discord.Color.green())
+                await ch1.send(embed=e1)
+            if ch2:
+                e2 = discord.Embed(title="🌇 TEST ODLOTÓW", description="Test pożegnalny.", color=discord.Color.red())
+                await ch2.send(embed=e2)
+            await message.channel.send("✅ Wysłano testy (jeśli kanały istnieją).")
+            await message.delete()
+            return
+
+# --- intents i start
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
