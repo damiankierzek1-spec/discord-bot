@@ -118,7 +118,84 @@ class MyBot(discord.Client):
             await message.channel.send(embed=embed, view=TicketButton())
             await message.delete() 
 
-        # === KOMENDA DO NADAWANIA RANGI ===
+        # === KOMENDA DO NADAWANIA RANGI JEDNEJ OSOBIE ===
+        if message.content.startswith("!rola "):
+            if message.author.id != TWOJE_ID_DISCORD:
+                return
+
+            # Oczekujemy formatu: !rola @Użytkownik NazwaRangi
+            content_clean = message.content[6:].strip()
+            if not message.mentions:
+                await message.channel.send("❌ Musisz oznaczyć użytkownika! Przykład: `!rola @Kuba @Ranga`")
+                return
+
+            target_user = message.mentions[0]
+            guild = message.guild
+
+            # Ustalamy nazwę roli (odcinamy oznaczenie użytkownika z wiadomości)
+            role_part = content_clean.replace(target_user.mention, "").strip()
+            # Czasami wzmianka ma format <@!ID> zamiast <@ID>
+            role_part = role_part.replace(f"<@!{target_user.id}>", "").strip()
+            role_part = role_part.replace(f"<@{target_user.id}>", "").strip()
+
+            role = None
+            if message.role_mentions:
+                role = message.role_mentions[0]
+            else:
+                role = discord.utils.get(guild.roles, name=role_part)
+
+            if not role:
+                await message.channel.send(f"❌ Nie znalazłem rangi: `{role_part if role_part else 'Podaj nazwę'}`")
+                return
+
+            if role >= guild.me.top_role:
+                await message.channel.send("❌ Ta ranga jest wyżej niż najwyższa rola bota!")
+                return
+
+            try:
+                await target_user.add_roles(role)
+                await message.channel.send(f"✅ Pomyślnie nadano rangę **{role.name}** użytkownikowi {target_user.mention}.")
+            except discord.Forbidden:
+                await message.channel.send("❌ Brak uprawnień do edycji tego użytkownika.")
+
+        # === KOMENDA DO USUWANIA RANGI JEDNEJ OSOBIE ===
+        if message.content.startswith("!usunrola "):
+            if message.author.id != TWOJE_ID_DISCORD:
+                return
+
+            content_clean = message.content[10:].strip()
+            if not message.mentions:
+                await message.channel.send("❌ Musisz oznaczyć użytkownika! Przykład: `!usunrola @Kuba @Ranga`")
+                return
+
+            target_user = message.mentions[0]
+            guild = message.guild
+
+            role_part = content_clean.replace(target_user.mention, "").strip()
+            role_part = role_part.replace(f"<@!{target_user.id}>", "").strip()
+            role_part = role_part.replace(f"<@{target_user.id}>", "").strip()
+
+            role = None
+            if message.role_mentions:
+                role = message.role_mentions[0]
+            else:
+                role = discord.utils.get(guild.roles, name=role_part)
+
+            if not role:
+                await message.channel.send(f"❌ Nie znalazłem rangi: `{role_part if role_part else 'Podaj nazwę'}`")
+                return
+
+            if role >= guild.me.top_role:
+                await message.channel.send("❌ Ta ranga jest wyżej niż najwyższa rola bota!")
+                return
+
+            try:
+                await target_user.remove_roles(role)
+                await message.channel.send(f"✅ Pomyślnie odebrano rangę **{role.name}** użytkownikowi {target_user.mention}.")
+            except discord.Forbidden:
+                await message.channel.send("❌ Brak uprawnień do edycji tego użytkownika.")
+
+        # === KOMENDA DO NADAWANIA RANGI WSZYSTKIM ===
         if message.content.startswith("!rola-wszyscy"):
             if message.author.id != TWOJE_ID_DISCORD:
                 return
@@ -166,7 +243,7 @@ class MyBot(discord.Client):
 
             await status_message.edit(content=f"✨ Zakończono! Pomyślnie dodano rangę **{role.name}** dla {success_count} użytkowników.")
 
-        # === KOMENDA DO USUWANIA RANGI ===
+        # === KOMENDA DO USUWANIA RANGI WSZYSTKIM ===
         if message.content.startswith("!usunrola-wszyscy"):
             if message.author.id != TWOJE_ID_DISCORD:
                 return
@@ -180,11 +257,9 @@ class MyBot(discord.Client):
             guild = message.guild
             role = None
 
-            # Sprawdzanie oznaczania
             if message.role_mentions:
                 role = message.role_mentions[0]
             else:
-                # Szukanie po nazwie tekstowej
                 role = discord.utils.get(guild.roles, name=role_query)
 
             if not role:
