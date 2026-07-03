@@ -113,27 +113,27 @@ class MyBot(discord.Client):
 
             embed = discord.Embed(
                 title="⚙️ Panel Zarządzania Botem",
-                description="Oto szybka ściągawka z komend. Pamiętaj, żeby przy rangach i osobach używać oznaczeń (`@`), żeby bot się nie pomylił.",
+                description="Ściąga komend do bota żeby nie zapomnieć XD.",
                 color=discord.Color.dark_gold()
             )
             
             embed.add_field(
-                name="📩 System Ticketów", 
-                value="`!ticket` — Wrzuca na kanał kartę z przyciskiem do otwierania zgłoszeń.", 
+                name="📩 Tickety", 
+                value="`!ticket` — dodaje panel ticket na kanał ( z reguły nie będziemy tego tam zmieniać czy dodawac, ale może wpadniemy na pomysł żeby coś tam zmienić ;D ).", 
                 inline=False
             )
             embed.add_field(
-                name="👤 Rangi dla jednej osoby", 
-                value="`!rola @osoba @ranga` — Daje rangę wybranemu graczowi.\n`!usunrola @osoba @ranga` — Zabiera rangę wybranemu graczowi.", 
+                name="👤 Rangi ", 
+                value="`!rola @osoba @ranga` — Daje rangę.\n`!usunrola @osoba @ranga` — Zabiera rangę.", 
                 inline=False
             )
             embed.add_field(
-                name="👥 Masowe zarządzanie (Wszyscy)", 
-                value="`!rola-wszyscy @ranga` — Daje rangę każdemu na serwerze naraz.\n`!usunrola-wszyscy @ranga` — Zabiera rangę każdemu na serwerze naraz.", 
+                name="👥 Masowe zarządzanie rangami", 
+                value="`!rola-wszyscy @ranga` — Daje rangę każdemu na serwerze.\n`!usunrola-wszyscy @ranga` — Zabiera rangę każdemu na serwerze.", 
                 inline=False
             )
             
-            embed.set_footer(text="Dostęp do tych komend ma tylko uprawniona administracja.")
+            embed.set_footer(text="Dostęp do tych komend ma tylko uprawniona administracja czyli @.zbyszek. , @kubus3368 , @steryd2378 .")
             
             await message.channel.send(embed=embed)
             await message.delete()
