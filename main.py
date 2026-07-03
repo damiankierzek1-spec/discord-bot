@@ -20,10 +20,7 @@ def keep_alive():
     t = Thread(target=run_web_server)
     t.start()
 
-# =======================
-# ANKIETY
-# =======================
-
+# === FORMULARZ WYSKAKUJĄCY DLA ANKIETY (MODAL) ===
 class PollModal(discord.ui.Modal, title="📊 Tworzenie nowej ankiety"):
     pytanie = discord.ui.TextInput(
         label="Wpisz pytanie ankiety",
@@ -53,10 +50,10 @@ class PollModal(discord.ui.Modal, title="📊 Tworzenie nowej ankiety"):
             opt_a=self.opcja_a.value,
             opt_b=self.opcja_b.value
         )
-        embed = view.build_embed()
-        await interaction.channel.send(embed=embed, view=view)
-        await interaction.response.send_message("✅ Ankieta została utworzona!", ephemeral=True)
+        await interaction.channel.send(embed=view.build_embed(), view=view)
+        await interaction.response.send_message("✅ Ankieta została pomyślnie wygenerowana na kanale!", ephemeral=True)
 
+# === SYSTEM GŁOSOWANIA W ANKIECIE ===
 class PollVotesView(discord.ui.View):
     def __init__(self, question, opt_a, opt_b):
         super().__init__(timeout=None)
@@ -74,37 +71,24 @@ class PollVotesView(discord.ui.View):
 
     def build_embed(self):
         total_votes = len(self.votes_a) + len(self.votes_b)
-        pct_a = (len(self.votes_a) / total_votes * 100) if total_votes else 0
-        pct_b = (len(self.votes_b) / total_votes * 100) if total_votes else 0
+        pct_a = (len(self.votes_a) / total_votes * 100) if total_votes > 0 else 0
+        pct_b = (len(self.votes_b) / total_votes * 100) if total_votes > 0 else 0
         bar_a = self.get_progress_bar(pct_a)
         bar_b = self.get_progress_bar(pct_b)
 
         embed = discord.Embed(
             title=f"📊 {self.question}",
-            description="Oddaj swój głos klikając przycisk poniżej.",
+            description="Oddaj swój głos klikając w odpowiedni przycisk poniżej!\nMożesz też zmienić zdanie w dowolnym momencie.",
             color=discord.Color.brand_green()
         )
-        embed.add_field(
-            name=f"🅰️ {self.opt_a_text}",
-            value=f"`{bar_a}` **{pct_a:.0f}%** ({len(self.votes_a)} głosów)",
-            inline=False
-        )
-        embed.add_field(
-            name=f"🅱️ {self.opt_b_text}",
-            value=f"`{bar_b}` **{pct_b:.0f}%** ({len(self.votes_b)} głosów)",
-            inline=False
-        )
-        embed.add_field(
-            name="👥 Suma oddanych głosów",
-            value=f"`{total_votes}`",
-            inline=False
-        )
-        embed.set_footer(text="Możesz zmienić swój głos w dowolnym momencie.")
+        embed.add_field(name=f"🅰️ {self.opt_a_text}", value=f"`{bar_a}` **{pct_a:.0f}%** ({len(self.votes_a)} głosów)", inline=False)
+        embed.add_field(name=f"🅱️ {self.opt_b_text}", value=f"`{bar_b}` **{pct_b:.0f}%** ({len(self.votes_b)} głosów)", inline=False)
+        embed.add_field(name="👥 Suma oddanych głosów", value=f"`{total_votes}`", inline=False)
+        embed.set_footer(text="Ankieta działa na przyciskach.")
         return embed
 
     async def update_poll(self, interaction: discord.Interaction):
-        embed = self.build_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="Opcja A 🅰️", style=discord.ButtonStyle.primary, custom_id="poll_btn_a")
     async def button_a_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -138,10 +122,7 @@ class StartPollView(discord.ui.View):
             return
         await interaction.response.send_modal(PollModal())
 
-# =======================
-# TICKETY
-# =======================
-
+# === FORMULARZ WYSKAKUJĄCY W OKIENKU TICKETA ===
 class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
     temat = discord.ui.TextInput(
         label="Podaj temat zgłoszenia",
@@ -165,10 +146,7 @@ class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
 
         existing_channel = discord.utils.get(guild.text_channels, name=channel_name)
         if existing_channel:
-            await interaction.response.send_message(
-                f"Masz już otwarty jeden ticket! Przejdź do: {existing_channel.mention}",
-                ephemeral=True
-            )
+            await interaction.response.send_message(f"Masz już otwarty jeden ticket! Przejdź do: {existing_channel.mention}", ephemeral=True)
             return
 
         overwrites = {
@@ -185,10 +163,7 @@ class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
 
         embed = discord.Embed(
             title="🎫 Nowe Zgłoszenie użytkownika",
-            description=(
-                f"Witaj {member.mention}! Administracja została powiadomiona o Twoim zgłoszeniu.\n\n"
-                f"👉 **Kliknij przycisk poniżej, aby przejąć to zgłoszenie!**"
-            ),
+            description=f"Witaj {member.mention}! Administracja została powiadomiona o Twoim zgłoszeniu.\n\n👉 **Kliknij przycisk poniżej, aby przejąć to zgłoszenie!**",
             color=discord.Color.green()
         )
         embed.add_field(name="📌 Temat:", value=f"```\n{self.temat.value}\n```", inline=False)
@@ -196,10 +171,7 @@ class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
 
         view = TicketControlView(ticket_topic=self.temat.value, ticket_desc=self.opis.value)
         await ticket_channel.send(embed=embed, view=view)
-        await interaction.response.send_message(
-            f"Pomyślnie stworzono ticket! Kliknij tutaj: {ticket_channel.mention}",
-            ephemeral=True
-        )
+        await interaction.response.send_message(f"Pomyślnie stworzono ticket! Kliknij tutaj: {ticket_channel.mention}", ephemeral=True)
 
 class TicketButton(discord.ui.View):
     def __init__(self):
@@ -246,7 +218,7 @@ class TicketControlView(discord.ui.View):
 
         embed = discord.Embed(
             title="⭐ Oceń pomoc administracji",
-            description="Dziękujemy za skorzystanie z systemu zgłoszeń! Prosimy o wybranie oceny.",
+            description="Dziękujemy za skorzystanie z systemu zgłoszeń! Prosimy o wybranie oceny adekwatnej do udzielonej pomocy przez administrację.",
             color=discord.Color.gold()
         )
         await interaction.channel.send(embed=embed, view=feedback_view)
@@ -330,16 +302,50 @@ class FeedbackView(discord.ui.View):
     async def star5(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_rating(interaction, "⭐⭐⭐⭐⭐ (5/5)")
 
-# =======================
-# BOT
-# =======================
+# === STAŁY PRZYCISK DO TWORZENIA ANKIET ===
+class StartPollView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
 
+    @discord.ui.button(label="Stwórz Nową Ankietę 📊", style=discord.ButtonStyle.success, custom_id="start_poll_btn_persistent")
+    async def start_poll(self, interaction: discord.Interaction, button: discord.ui.Button):
+        ADMIN_IDS = [652507356105539585, 550959315700154368, 590215623259193371]
+        if interaction.user.id not in ADMIN_IDS:
+            await interaction.response.send_message("❌ Brak uprawnień do tworzenia ankiet.", ephemeral=True)
+            return
+        await interaction.response.send_modal(PollModal())
+
+# === BOT ===
 class MyBot(discord.Client):
     async def on_ready(self):
-        print(f"Logged on as {self.user}!")
+        print(f'Logged on as {self.user}!')
         self.add_view(TicketButton())
         self.add_view(TicketControlView())
         self.add_view(StartPollView())
+
+    async def on_member_join(self, member):
+        channel = discord.utils.get(member.guild.text_channels, name="⌊przyloty⌉⌊🌆⌉")
+        if channel:
+            embed = discord.Embed(
+                title="🌆 Witaj na serwerze!",
+                description=f"{member.mention} właśnie do nas dołączył!\nMiło Cię widzieć!",
+                color=discord.Color.green()
+            )
+            embed.set_thumbnail(url=member.display_avatar.url)
+            embed.set_footer(text=f"Teraz mamy {member.guild.member_count} osób.")
+            await channel.send(embed=embed)
+
+    async def on_member_remove(self, member):
+        channel = discord.utils.get(member.guild.text_channels, name="⌊odloty⌉⌊🌇⌉")
+        if channel:
+            embed = discord.Embed(
+                title="🌇 Ktoś odleciał...",
+                description=f"**{member.name}** opuścił serwer.",
+                color=discord.Color.red()
+            )
+            embed.set_thumbnail(url=member.display_avatar.url)
+            embed.set_footer(text=f"Teraz mamy {member.guild.member_count} osób.")
+            await channel.send(embed=embed)
 
     async def on_message(self, message):
         if message.author == self.user:
@@ -353,13 +359,75 @@ class MyBot(discord.Client):
 
             embed = discord.Embed(
                 title="⚙️ Panel Zarządzania Botem",
-                description="Ściąga komend do bota żeby nie zapomnieć XD.",
+                description="Przejrzysta lista komend administracyjnych dostępnych na serwerze.",
                 color=discord.Color.dark_gold()
             )
-            embed.add_field(name="📩 Tickety", value="`!ticket` — dodaje panel ticket na kanał.", inline=False)
-            embed.add_field(name="📊 Ankiety", value="`!ankieta` — dodaje stały panel tworzenia ankiet.", inline=False)
-            embed.add_field(name="👤 Rangi", value="`!rola @osoba @ranga` / `!usunrola @osoba @ranga`", inline=False)
-            embed.add_field(name="👥 Masowe rangi", value="`!rola-wszyscy @ranga` / `!usunrola-wszyscy @ranga`", inline=False)
+
+            embed.add_field(
+                name="📩 Tickety",
+                value=(
+                    "`!ticket`\n"
+                    "• wysyła panel do tworzenia ticketów.\n"
+                    "`Stwórz Ticket ✉️`\n"
+                    "• otwiera formularz zgłoszenia."
+                ),
+                inline=False
+            )
+
+            embed.add_field(
+                name="📊 Ankiety",
+                value=(
+                    "`!ankieta`\n"
+                    "• wysyła panel tworzenia ankiet.\n"
+                    "`Stwórz Nową Ankietę 📊`\n"
+                    "• otwiera formularz ankiety."
+                ),
+                inline=False
+            )
+
+            embed.add_field(
+                name="👤 Rangi",
+                value=(
+                    "`!rola @osoba @ranga`\n"
+                    "• nadaje rangę użytkownikowi.\n"
+                    "`!usunrola @osoba @ranga`\n"
+                    "• odbiera rangę użytkownikowi."
+                ),
+                inline=False
+            )
+
+            embed.add_field(
+                name="👥 Masowe rangi",
+                value=(
+                    "`!rola-wszyscy @ranga`\n"
+                    "• nadaje rangę wszystkim użytkownikom.\n"
+                    "`!usunrola-wszyscy @ranga`\n"
+                    "• odbiera rangę wszystkim użytkownikom."
+                ),
+                inline=False
+            )
+
+            embed.add_field(
+                name="🌆 Powitania i pożegnania",
+                value=(
+                    "`⌊przyloty⌉⌊🌆⌉`\n"
+                    "• kanał na powitania.\n"
+                    "`⌊odloty⌉⌊🌇⌉`\n"
+                    "• kanał na pożegnania."
+                ),
+                inline=False
+            )
+
+            embed.add_field(
+                name="🛠️ Wskazówki",
+                value=(
+                    "• Bot potrzebuje uprawnień do zarządzania rolami.\n"
+                    "• Kanały powitalne muszą istnieć pod dokładną nazwą.\n"
+                    "• Ankiety i tickety są oparte o przyciski."
+                ),
+                inline=False
+            )
+
             embed.set_footer(text="Dostęp: @.zbyszek. , @kubus3368 , @steryd2378 .")
             await message.channel.send(embed=embed)
             await message.delete()
@@ -373,6 +441,7 @@ class MyBot(discord.Client):
                 description="Kliknij przycisk poniżej, aby otworzyć formularz i wygenerować nową ankietę.",
                 color=discord.Color.dark_purple()
             )
+
             await message.channel.send(embed=embed, view=StartPollView())
             await message.delete()
 
