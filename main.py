@@ -316,7 +316,7 @@ async def pomoc_cmd(interaction: discord.Interaction):
         ("👤 Rangi (Nadaj)", "`/rola @użytkownik @ranga` • nadaje rangę użytkownikowi.", "Komenda z argumentami"),
         ("👤 Rangi (Usuń)", "`/usunrola @użytkownik @ranga` • odbiera rangę użytkownikowi.", "Komenda z argumentami"),
         ("👥 Masowe rangi", "`/rola-wszyscy @ranga` • nadaje rangę wszystkim użytkownikom.", "Komenda z argumentami"),
-        ("🌆 Powitania i pożegnania", ("`⌊przyloty⌉⌊🌆⌉`" • kanał na powitania.\n"`⌊odloty⌉⌊🌇⌉`" • kanał na pożegnania."), None),
+        ("🌆 Powitania i pożegnania", ("`⌊przyloty⌉⌊🌆⌉` - kanał na powitania.\n`⌊odloty⌉⌊🌇⌉` - kanał na pożegnania."), None)
         ("🛠️ Testy:", "`/test-witamy` • uruchamia testy komunikatów powitalnych i pożegnalnych.")
     ]
 
