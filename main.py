@@ -71,7 +71,7 @@ HTML_TEMPLATE = """
             <div>
                 <div class="has-text-centered mb-6">
                     <h1 class="title is-4 glow-text mb-1">🎮 KUBUSIOWO</h1>
-                    <p class="is-size-7 has-text-grey">v4.5 Modal & Logs</p>
+                    <p class="is-size-7 has-text-grey">v5.0 Complete Fix</p>
                 </div>
                 <ul class="menu-list">
                     <li><a href="#" class="is-active" onclick="switchTab(event, 'status-tab')">⚙️ Status bota</a></li>
@@ -229,7 +229,7 @@ def assign_role():
 async def trigger_ticket_close_flow(channel_id: int):
     channel = bot_instance.get_channel(channel_id)
     if channel:
-        await channel.send("⚠️ Krok autoryzowany przez panel admina. Wywołuję procedurę zamknięcia.")
+        await channel.send("⚠️ Zdalne żądanie zamknięcia z panelu WWW. Wywołuję ankietę satysfakcji.")
         await initiate_survey(channel)
 
 async def create_channel_async(name: str, channel_type: str):
@@ -245,7 +245,6 @@ async def assign_role_async(user_id: int, role_name: str):
         if member and role: await member.add_roles(role)
 
 async def send_to_log_channel(embed: Embed):
-    """Pomocnik do wysyłania embedów na kanał logów serwera"""
     if bot_instance and LOGS_CHANNEL_ID:
         logs_channel = bot_instance.get_channel(LOGS_CHANNEL_ID)
         if logs_channel:
@@ -266,14 +265,11 @@ class TicketSurveyView(View):
 
     async def handle_rating(self, interaction: discord.Interaction, rating: int):
         await interaction.response.send_message(f"⭐ Dziękujemy za ocenę: **{rating}/5**! Sekcja zostanie usunięta.", ephemeral=False)
-        
-        # Logowanie do konsoli
         print(f"📊 [FEEDBACK] Ticket {interaction.channel.name} zamknięty z oceną: {rating}/5 przez {interaction.user}")
         
-        # Logowanie na dedykowany kanał tekstowy Discord
         log_embed = Embed(title="🔒 Ticket Zamknięty & Oceniony", color=0xff4757)
         log_embed.add_field(name="Kanał", value=f"`{interaction.channel.name}`", inline=True)
-        log_embed.add_field(name="Zamykający / Oceniający", value=interaction.user.mention, inline=True)
+        log_embed.add_field(name="Oceniający", value=interaction.user.mention, inline=True)
         log_embed.add_field(name="Ocena końcowa", value=f"**{rating}/5 ⭐**", inline=False)
         await send_to_log_channel(log_embed)
 
@@ -308,24 +304,23 @@ async def initiate_survey(channel):
     await channel.send(embed=embed, view=TicketSurveyView())
 
 # ===============================
-# 📝 OKIENKO MODALNE (FORMULARZ TEMATU TICKETU)
+# 📝 OKIENKO MODALNE (FORMULARZ TICKETU)
 # ===============================
 
 class TicketCreateModal(Modal):
-    """Wyskakujące okienko w aplikacji Discord wymagające podania tematu przed otwarciem kanału"""
     def __init__(self):
         super().__init__(title="Formularz Zgłoszenia")
 
         self.subject = TextInput(
             label="Temat zgłoszenia",
-            placeholder="np. Błąd w grze / Skarga na gracza...",
+            placeholder="np. Błąd / Problem z zakupem / Skarga...",
             required=True,
             max_length=100
         )
         self.description = TextInput(
             label="Opis problemu",
             style=discord.TextStyle.paragraph,
-            placeholder="Opisz dokładnie swoją sprawę, aby przyspieszyć pomoc...",
+            placeholder="Opisz tutaj szczegóły sprawy...",
             required=True,
             max_length=1000
         )
@@ -338,7 +333,7 @@ class TicketCreateModal(Modal):
         channel_name = f"ticket-{member.name.lower()}".replace(" ", "-")
         
         if utils.get(guild.text_channels, name=channel_name):
-            await interaction.response.send_message("❌ Posiadasz już jedno aktywne zgłoszenie na tym serwerze!", ephemeral=True)
+            await interaction.response.send_message("❌ Masz już otwarte jedno zgłoszenie!", ephemeral=True)
             return
 
         overwrites = {
@@ -348,17 +343,14 @@ class TicketCreateModal(Modal):
         }
         ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
         
-        # Wiadomość powitalna wewnątrz nowego ticketu zawierająca dane z okienka
         embed = Embed(title="🎫 Nowe Zgłoszenie Otwarte!", color=0x5865f2)
         embed.add_field(name="Użytkownik", value=member.mention, inline=True)
         embed.add_field(name="Temat główny", value=f"**{self.subject.value}**", inline=False)
         embed.add_field(name="Szczegółowy opis", value=self.description.value, inline=False)
-        embed.set_footer(text="Administracja pojawi się tutaj tak szybko, jak to możliwe.")
         
         await ticket_channel.send(embed=embed, view=TicketActionView())
         await interaction.response.send_message(f"✅ Otwarto ticket: {ticket_channel.mention}", ephemeral=True)
 
-        # Logowanie otwarcia ticketu do kanału logów
         log_embed = Embed(title="📥 Otwarto Nowy Ticket", color=0x2ed573)
         log_embed.add_field(name="Kanał", value=ticket_channel.mention, inline=True)
         log_embed.add_field(name="Założyciel", value=member.mention, inline=True)
@@ -378,11 +370,10 @@ class TicketSetupView(View):
 
     @discord.ui.button(label="🎫 Otwórz zgłoszenie", style=discord.ButtonStyle.primary, custom_id="open_ticket_btn")
     async def open_ticket(self, interaction: discord.Interaction, button: Button):
-        # Wywołanie okienka Modal zamiast bezpośredniego tworzenia kanału
         await interaction.response.send_modal(TicketCreateModal())
 
 # ===============================
-# 🤖 ROZBUDOWANE KOMENDY BOTA DISCORD
+# 🤖 KOMENDY BOTA DISCORD
 # ===============================
 
 intents = Intents.default()
@@ -394,6 +385,7 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 async def setup_hook():
     global bot_instance
     bot_instance = bot
+    # UWAGA: Dodajemy tylko widoki View. Modali nie rejestruje się w setup_hook!
     bot.add_view(TicketSetupView())
     bot.add_view(TicketActionView())
     bot.add_view(TicketSurveyView())
@@ -403,35 +395,36 @@ async def on_ready(): print(f'🤖 Bot online: {bot.user}')
 
 @bot.command(name="pomoc")
 async def pomoc(ctx):
-    """Rozbudowana, estetyczna i przejrzysta wersja komendy pomoc"""
+    """Rozbudowana komenda pomoc z jasną listą wszystkich komend bota"""
     embed = Embed(
-        title="⚙️ Centrala Pomocy - Kompletny Podręcznik",
-        description="Witaj w menu nawigacyjnym bota. Poniżej znajdziesz wszystkie kluczowe informacje dotyczące zarządzania systemem.",
+        title="📚 Menu Pomocy - Lista Wszystkich Komend",
+        description="Poniżej znajdziesz spis poleceń bota wraz z ich opisami i uprawnieniami.",
         color=0x5865f2
     )
+    # Sekcja dla zwykłych użytkowników
     embed.add_field(
-        name="🎫 System Współpracy (Komendy)",
-        value="• `!pomoc` - Wyświetla to zaawansowane menu nawigacyjne.\n"
-              "• `!ticket` - Generuje stały moduł interaktywny wsparcia (Wymaga: *Administrator*).\n",
+        name="👥 Komendy Użytkownika",
+        value="• `!pomoc` - Wyświetla to pełne okno pomocy z listą poleceń.",
         inline=False
     )
+    # Sekcja dla Administratorów
     embed.add_field(
-        name="🖥️ Zdalny Panel WWW (Dashboard)",
-        value="Pozwala administratorom na pełny nadzór serwera z przeglądarki:\n"
-              "• **Live Monitor**: Podgląd otwartych ticketów z opcją zdalnego usuwania.\n"
-              "• **Zarządzanie strukturą**: Tworzenie nowych kanałów (tekst/głos) z poziomu sieci.\n"
-              "• **System Uprawnień**: Bezpośrednie nadawanie ról użytkownikom przez ID.",
+        name="🛠️ Komendy Administratora",
+        value="• `!ticket` - Generuje stały interaktywny panel zgłoszeń z przyciskiem.\n"
+              "• *(Wymagane uprawnienie: Administrator, automatycznie usuwa wiadomość wywołującą)*",
         inline=False
     )
+    # Sekcja Panelu WWW
     embed.add_field(
-        name="📊 Funkcje Dodatkowe",
-        value="• **Formularze Modal**: Użytkownik przed otwarciem kanału podaje temat i powód zgłoszenia.\n"
-              "• **Logi Zgłoszeń**: Informacje o akcjach zapisują się na wyznaczonym kanale logów.\n"
-              "• **Ankiety Ewaluacyjne**: Po zamknięciu ticketu system zbiera oceny gwiazdkowe (1-5).",
+        name="💻 Zdalny Panel WWW (Dashboard)",
+        value="Dostępny pod adresem IP bota z hasłem konfiguracyjnym:\n"
+              "• **Status**: Dynamiczna zmiana statusu bota (Gra w...)\n"
+              "• **Kanały**: Tworzenie nowych kanałów tekstowych i głosowych.\n"
+              "• **Role**: Nadawanie ról użytkownikom przez podanie ich ID.\n"
+              "• **Tickety**: Zdalny monitor i opcja natychmiastowego zamykania z ankietą.",
         inline=False
     )
-    embed.set_thumbnail(url=bot.user.avatar.url if bot.user.avatar else None)
-    embed.set_footer(text=f"Autoryzacja zapytania: {ctx.author.name}", icon_url=ctx.author.avatar.url if ctx.author.avatar else None)
+    embed.set_footer(text=f"Wywołane przez: {ctx.author.name}")
     await ctx.send(embed=embed)
 
 @bot.command(name="ticket")
