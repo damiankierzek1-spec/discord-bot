@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from discord import Intents, utils, Embed
+from discord import Intents, utils, Embed, File
 from discord.ui import Button, View, Modal, TextInput
 import os
 from flask import Flask, render_template_string, request, redirect, session, jsonify, Response
@@ -9,6 +9,9 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import List
 import json
+import random
+import io
+from PIL import Image, ImageDraw, ImageFont
 
 # ===============================
 # 🚨 KONFIGURACJA GLOBALNA 🚨
@@ -24,6 +27,7 @@ app.secret_key = os.environ.get("FLASK_SECRET", "super-tajny-klucz-kubusiowo")
 bot_instance = None
 ticket_data_cache = {}
 web_listeners = []
+captcha_sessions = {}  # Słownik do przechowywania wygenerowanych kodów użytkowników
 
 def load_archive():
     if os.path.exists(ARCHIVE_FILE):
@@ -68,18 +72,12 @@ SHARED_STYLE = """
         position: relative;
     }
 
-    /* Klasyczny Canvas na pełny ekran dla gwiazd */
     #space-canvas {
         position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        z-index: 0;
-        pointer-events: none;
+        top: 0; left: 0; width: 100vw; height: 100vh;
+        z-index: 0; pointer-events: none;
     }
 
-    /* Żywe, animowane tło świetlne w tle strony pod gwiazdami */
     .animated-bg {
         position: fixed;
         top: 0; left: 0; width: 100vw; height: 100vh;
@@ -98,7 +96,6 @@ SHARED_STYLE = """
 
     .dashboard-container { display: flex; min-height: 100vh; position: relative; z-index: 1; }
     
-    /* Pasek boczny z efektem frosted-glass i neonową linią */
     .sidebar { 
         width: 280px; 
         background: rgba(8, 5, 18, 0.75); 
@@ -114,7 +111,6 @@ SHARED_STYLE = """
 
     .main-content { flex: 1; padding: 3rem; overflow-y: auto; height: 100vh; position: relative; z-index: 1; }
 
-    /* Animowane Menu Linki */
     .menu-list a { 
         color: #8a8da4; 
         padding: 0.9rem 1.2rem; 
@@ -143,7 +139,6 @@ SHARED_STYLE = """
         border-color: rgba(88, 101, 242, 0.3);
     }
 
-    /* Płynnie podświetlane kontenery (Karty) */
     .glass-box { 
         background: var(--panel-bg); 
         border: 1px solid var(--border-glow); 
@@ -163,7 +158,6 @@ SHARED_STYLE = """
         text-shadow: 0 0 15px rgba(88, 101, 242, 0.8), 0 0 30px rgba(88, 101, 242, 0.3); 
     }
 
-    /* Przycisk Cyber-Glow */
     .btn-glow { 
         background: linear-gradient(135deg, #6c7fff, #5865f2); 
         color: white; border: none; font-weight: 600; border-radius: 10px; 
@@ -203,7 +197,6 @@ SHARED_STYLE = """
         box-shadow: 0 0 15px rgba(88, 101, 242, 0.3) !important; 
     }
 
-    /* Animowane otwieranie zakładek */
     .tab-content { display: none; }
     .tab-content.is-active { 
         display: block; 
@@ -215,7 +208,6 @@ SHARED_STYLE = """
         to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); } 
     }
 
-    /* Pulsująca kropka statusu na żywo */
     .live-pulse-dot {
         width: 10px; height: 10px; background: #00ffa3; border-radius: 50%; display: inline-block;
         box-shadow: 0 0 10px #00ffa3, 0 0 20px #00ffa3;
@@ -228,7 +220,6 @@ SHARED_STYLE = """
         100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 255, 163, 0); }
     }
 
-    /* Interfejs Live Chatu */
     .chat-container { display: flex; height: 650px; gap: 25px; }
     .chat-channels-list { width: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
     
@@ -308,7 +299,6 @@ HTML_TEMPLATE = """
     {{ SHARED_STYLE | safe }}
 </head>
 <body>
-    <!-- Warstwy Animowanego Tła -->
     <div class="animated-bg"></div>
     <canvas id="space-canvas"></canvas>
 
@@ -409,117 +399,60 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
-        // ============================================
-        // 🔊 DEKLARACJA KONTROLERA DŹWIĘKÓW (AUDIO MATRIX)
-        // ============================================
         const hoverAudio = new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav');
         const clickAudio = new Audio('https://assets.mixkit.co/active_storage/sfx/2753/2753-84.wav');
-        hoverAudio.volume = 0.15;
-        clickAudio.volume = 0.25;
+        hoverAudio.volume = 0.15; clickAudio.volume = 0.25;
 
-        function playHoverSound() {
-            hoverAudio.currentTime = 0;
-            hoverAudio.play().catch(() => {});
-        }
+        function playHoverSound() { hoverAudio.currentTime = 0; hoverAudio.play().catch(() => {}); }
+        function playClickSound() { clickAudio.currentTime = 0; clickAudio.play().catch(() => {}); }
 
-        function playClickSound() {
-            clickAudio.currentTime = 0;
-            clickAudio.play().catch(() => {});
-        }
-
-        // ============================================
-        // 🌌 SILNIK RENDEROWANIA PROJEKCJI GWIAZD (CANVAS ENGINE)
-        // ============================================
         const canvas = document.getElementById('space-canvas');
         const ctx = canvas.getContext('2d');
+        let stars = []; let meteors = [];
 
-        let stars = [];
-        let meteors = [];
+        function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+        window.addEventListener('resize', resizeCanvas); resizeCanvas();
 
-        function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        }
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
-
-        // Generowanie stałego pyłu kosmicznego
         for (let i = 0; i < 120; i++) {
             stars.push({
-                x: Math.random() * canvas.width,
-                y: Math.random() * canvas.height,
-                size: Math.random() * 1.8,
-                alpha: Math.random(),
-                speed: 0.2 + Math.random() * 0.4
+                x: Math.random() * canvas.width, y: Math.random() * canvas.height,
+                size: Math.random() * 1.8, alpha: Math.random(), speed: 0.2 + Math.random() * 0.4
             });
         }
 
         function spawnMeteor() {
             if (meteors.length < 3 && Math.random() < 0.015) {
                 meteors.push({
-                    x: Math.random() * canvas.width * 0.8,
-                    y: -20,
-                    length: 40 + Math.random() * 80,
-                    speedX: 4 + Math.random() * 6,
-                    speedY: 4 + Math.random() * 6,
-                    alpha: 1
+                    x: Math.random() * canvas.width * 0.8, y: -20,
+                    length: 40 + Math.random() * 80, speedX: 4 + Math.random() * 6, speedY: 4 + Math.random() * 6, alpha: 1
                 });
             }
         }
 
         function drawSpace() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Rysowanie i ruch gwiazd (dryfowanie w dół)
             stars.forEach(star => {
                 ctx.fillStyle = `rgba(255, 255, 255, ${star.alpha})`;
-                ctx.beginPath();
-                ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
-                ctx.fill();
-
+                ctx.beginPath(); ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2); ctx.fill();
                 star.y += star.speed;
-                if (star.y > canvas.height) {
-                    star.y = 0;
-                    star.x = Math.random() * canvas.width;
-                }
+                if (star.y > canvas.height) { star.y = 0; star.x = Math.random() * canvas.width; }
             });
-
-            // Spadające gwiazdy / Meteory
             spawnMeteor();
             meteors.forEach((m, idx) => {
-                ctx.strokeStyle = `aria-linear-gradient`;
                 let gradient = ctx.createLinearGradient(m.x, m.y, m.x + m.length, m.y + m.length);
                 gradient.addColorStop(0, `rgba(0, 242, 254, ${m.alpha})`);
                 gradient.addColorStop(0.5, `rgba(88, 101, 242, ${m.alpha * 0.5})`);
                 gradient.addColorStop(1, 'rgba(0,0,0,0)');
-
-                ctx.strokeStyle = gradient;
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(m.x, m.y);
-                ctx.lineTo(m.x - m.length, m.y - m.length);
-                ctx.stroke();
-
-                // Aktualizacja pozycji
-                m.x += m.speedX;
-                m.y += m.speedY;
-                m.alpha -= 0.012;
-
-                if (m.alpha <= 0 || m.x > canvas.width || m.y > canvas.height) {
-                    meteors.splice(idx, 1);
-                }
+                ctx.strokeStyle = gradient; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(m.x, m.y); ctx.lineTo(m.x - m.length, m.y - m.length); ctx.stroke();
+                m.x += m.speedX; m.y += m.speedY; m.alpha -= 0.012;
+                if (m.alpha <= 0 || m.x > canvas.width || m.y > canvas.height) { meteors.splice(idx, 1); }
             });
-
             requestAnimationFrame(drawSpace);
         }
         drawSpace();
 
-        // ============================================
-        // 🛠️ FUNKCJONALNOŚĆ PANELU ZAKŁADEK
-        // ============================================
-        let currentActiveChannelId = null;
-        let selectedUserId = null;
-        let allUsersData = [];
+        let currentActiveChannelId = null; let selectedUserId = null; let allUsersData = [];
 
         function switchTab(evt, tabId) {
             playClickSound();
@@ -539,8 +472,7 @@ HTML_TEMPLATE = """
                 listDiv.innerHTML = '';
                 if (data.length === 0) { listDiv.innerHTML = '<p class="has-text-grey-light">Brak otwartych procesów zgłoszeniowych.</p>'; return; }
                 data.forEach(t => {
-                    const div = document.createElement('div');
-                    div.className = 'ticket-badge';
+                    const div = document.createElement('div'); div.className = 'ticket-badge';
                     div.innerHTML = `<div><strong style="color:#fff; font-size:1.1rem;">#${t.name}</strong></div>
                     <form method="POST" action="/close-ticket-dash" style="margin:0;"><input type="hidden" name="channel_id" value="${t.id}"><button type="submit" class="button is-small btn-danger-glow px-5" onclick="playClickSound()">Wymuś Zamknięcie</button></form>`;
                     listDiv.appendChild(div);
@@ -556,8 +488,7 @@ HTML_TEMPLATE = """
                 data.forEach(t => {
                     const div = document.createElement('div');
                     div.className = `chat-channel-item ${currentActiveChannelId === t.id ? 'active' : ''}`;
-                    div.innerText = `#${t.name}`;
-                    div.onmouseenter = playHoverSound;
+                    div.innerText = `#${t.name}`; div.onmouseenter = playHoverSound;
                     div.onclick = () => { playClickSound(); selectChatChannel(t.id); };
                     channelsDiv.appendChild(div);
                 });
@@ -571,8 +502,7 @@ HTML_TEMPLATE = """
             const messagesDiv = document.getElementById('chat-messages');
             messagesDiv.innerHTML = '<p class="has-text-grey">Pobieranie strumienia historii...</p>';
             fetch(`/api/chat/history/${channelId}`).then(res => res.json()).then(messages => {
-                messagesDiv.innerHTML = '';
-                messages.forEach(msg => appendMessageDOM(msg));
+                messagesDiv.innerHTML = ''; messages.forEach(msg => appendMessageDOM(msg));
             });
         }
 
@@ -581,40 +511,29 @@ HTML_TEMPLATE = """
             const row = document.createElement('div');
             row.className = `chat-msg-row ${msg.is_bot ? 'bot' : 'user'}`;
             row.innerHTML = `<div class="chat-msg-author">${msg.author}</div><div>${msg.content}</div><div class="chat-msg-time">${msg.time}</div>`;
-            messagesDiv.appendChild(row);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            messagesDiv.appendChild(row); messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
         function sendWebMessage() {
             playClickSound();
-            const input = document.getElementById('chat-input-msg');
-            const content = input.value.trim();
+            const input = document.getElementById('chat-input-msg'); const content = input.value.trim();
             if(!content || !currentActiveChannelId) return;
             fetch('/api/chat/send', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ channel_id: currentActiveChannelId, message: content })
             }).then(() => { input.value = ''; });
         }
 
-        function fetchUsers() {
-            fetch('/api/users').then(res => res.json()).then(data => {
-                allUsersData = data;
-                renderUsersList(allUsersData);
-            });
-        }
+        function fetchUsers() { fetch('/api/users').then(res => res.json()).then(data => { allUsersData = data; renderUsersList(allUsersData); }); }
 
         function renderUsersList(users) {
-            const container = document.getElementById('user-scroll-container');
-            container.innerHTML = '';
+            const container = document.getElementById('user-scroll-container'); container.innerHTML = '';
             if(users.length === 0) { container.innerHTML = '<p class="has-text-grey is-size-7 p-2">Nie odnaleziono kryteriów.</p>'; return; }
-            
             users.forEach(u => {
                 const div = document.createElement('div');
                 div.className = `user-list-item ${selectedUserId === u.id ? 'active' : ''}`;
                 div.innerHTML = `<img src="${u.avatar}" alt="avatar"> <span>${u.name}</span>`;
-                div.onmouseenter = playHoverSound;
-                div.onclick = () => { playClickSound(); selectUser(u.id); };
+                div.onmouseenter = playHoverSound; div.onclick = () => { playClickSound(); selectUser(u.id); };
                 container.appendChild(div);
             });
         }
@@ -626,25 +545,16 @@ HTML_TEMPLATE = """
         }
 
         function selectUser(userId) {
-            selectedUserId = userId;
-            const profileDiv = document.getElementById('user-profile');
+            selectedUserId = userId; const profileDiv = document.getElementById('user-profile');
             profileDiv.innerHTML = '<p class="has-text-grey">Wczytywanie architektury profilu...</p>';
-            
             fetch(`/api/users/${userId}`).then(res => res.json()).then(u => {
                 if(u.error) { profileDiv.innerHTML = `<p class='has-text-danger'>${u.error}</p>`; return; }
-                
                 let rolesHtml = u.roles.map(r => `<span class="role-tag">${r}</span>`).join('');
                 let dropdownOptions = u.server_all_roles.map(rName => `<option value="${rName}">${rName}</option>`).join('');
-
                 profileDiv.innerHTML = `
                     <div class="columns is-mobile is-vcentered mb-4">
-                        <div class="column is-narrow">
-                            <img src="${u.avatar}" style="width:80px; height:80px; border-radius:50%; border:2px solid var(--primary-glow); box-shadow: 0 0 15px var(--primary-glow);">
-                        </div>
-                        <div class="column">
-                            <h3 class="title is-4 has-text-white mb-1 glow-text">${u.name}</h3>
-                            <p class="is-size-7 has-text-grey-light">ID: ${u.id}</p>
-                        </div>
+                        <div class="column is-narrow"><img src="${u.avatar}" style="width:80px; height:80px; border-radius:50%; border:2px solid var(--primary-glow); box-shadow: 0 0 15px var(--primary-glow);"></div>
+                        <div class="column"><h3 class="title is-4 has-text-white mb-1 glow-text">${u.name}</h3><p class="is-size-7 has-text-grey-light">ID: ${u.id}</p></div>
                     </div>
                     <div class="is-size-7 mb-4 p-3" style="background:rgba(0,0,0,0.15); border-radius:10px;">
                         <p>📅 Rejestracja: <span class="has-text-white">${u.created_at}</span></p>
@@ -652,114 +562,72 @@ HTML_TEMPLATE = """
                     </div>
                     <p class="label has-text-grey-light mb-2 is-size-7">AKTYWNE RANGI:</p>
                     <div class="mb-4">${rolesHtml || '<span class="has-text-grey-light is-size-7">Brak uprawnień</span>'}</div>
-                    
                     <div class="box mb-4 p-4" style="background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.05); border-radius:12px;">
                         <p class="is-size-7 has-text-white mb-2 font-weight-bold">⚡ Przydzielanie / Usuwanie Rang</p>
                         <div class="field has-addons">
-                            <div class="control is-expanded">
-                                <div class="select is-small is-fullwidth custom-select">
-                                    <select id="role-dropdown">${dropdownOptions}</select>
-                                </div>
-                            </div>
+                            <div class="control is-expanded"><div class="select is-small is-fullwidth custom-select"><select id="role-dropdown">${dropdownOptions}</select></div></div>
                             <div class="control"><button class="button is-small btn-glow px-4" onclick="modifyUserRole('add')">Nadaj</button></div>
                             <div class="control"><button class="button is-small btn-danger-glow px-4" onclick="modifyUserRole('remove')">Zabierz</button></div>
                         </div>
                     </div>
-
                     <div class="box p-4" style="background:rgba(255, 0, 127, 0.03); border:1px solid rgba(255, 0, 127, 0.15); border-radius:12px;">
                         <p class="is-size-7 has-text-danger font-weight-bold mb-2">🛡️ KARY I RESTRYKCJE</p>
-                        <div class="field mb-3">
-                            <input id="mod-reason" type="text" class="input is-small custom-input" placeholder="Powód kary...">
-                        </div>
+                        <div class="field mb-3"><input id="mod-reason" type="text" class="input is-small custom-input" placeholder="Powód kary..."></div>
                         <div class="buttons">
                             <button class="button is-small btn-warning-glow" onclick="moderateUser('timeout')">Wycisz (1h)</button>
                             <button class="button is-small btn-danger-glow" onclick="moderateUser('kick')">Wyrzuć</button>
                             <button class="button is-small btn-danger-glow" style="background:linear-gradient(135deg, crimson, #ff0000);" onclick="moderateUser('ban')">Zbanuj</button>
                         </div>
-                    </div>
-                `;
+                    </div>`;
             });
         }
 
         function modifyUserRole(action) {
-            playClickSound();
-            const dropdown = document.getElementById('role-dropdown');
-            if(!dropdown || !selectedUserId) return;
-            const roleName = dropdown.value;
+            playClickSound(); const dropdown = document.getElementById('role-dropdown'); if(!dropdown || !selectedUserId) return;
             fetch('/api/users/modify-role', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ user_id: selectedUserId, action: action, role_name: roleName })
-            }).then(res => res.json()).then(data => {
-                if(data.success) { selectUser(selectedUserId); }
-            });
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ user_id: selectedUserId, action: action, role_name: dropdown.value })
+            }).then(res => res.json()).then(data => { if(data.success) selectUser(selectedUserId); });
         }
 
         function moderateUser(action) {
-            playClickSound();
-            const reasonInput = document.getElementById('mod-reason');
-            if(!reasonInput || !selectedUserId) return;
+            playClickSound(); const reasonInput = document.getElementById('mod-reason'); if(!reasonInput || !selectedUserId) return;
             const reason = reasonInput.value.trim() || "Akcja z panelu WWW Cyber-Glow.";
-
             if(!confirm(`Czy na pewno chcesz wykonać operację ${action.toUpperCase()}?`)) return;
-
             fetch('/api/users/moderate', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ user_id: selectedUserId, action: action, reason: reason })
             }).then(res => res.json()).then(data => {
-                if(data.success) {
-                    fetchUsers();
-                    document.getElementById('user-profile').innerHTML = '<p class="has-text-grey has-text-centered" style="margin-top: 200px;">Wybierz osobę z bazy danych, aby otworzyć profil cyber-karty.</p>';
-                }
+                if(data.success) { fetchUsers(); document.getElementById('user-profile').innerHTML = '<p class="has-text-grey has-text-centered" style="margin-top: 200px;">Wybierz osobę z bazy danych, aby otworzyć profil cyber-karty.</p>'; }
             });
         }
 
         function fetchArchive() {
             const archiveDiv = document.getElementById('archive-list');
             fetch('/api/archive').then(res => res.json()).then(data => {
-                archiveDiv.innerHTML = '';
-                if(data.length === 0) { archiveDiv.innerHTML = '<p class="has-text-grey">Archiwum systemowe jest puste.</p>'; return; }
+                archiveDiv.innerHTML = ''; if(data.length === 0) { archiveDiv.innerHTML = '<p class="has-text-grey">Archiwum systemowe jest puste.</p>'; return; }
                 data.forEach((item, index) => {
-                    const div = document.createElement('div');
-                    div.className = 'archive-item';
-                    div.innerHTML = `
-                        <div>
-                            <strong style="color:#fff; font-size:1.05rem;">#${item.channel_name}</strong> - <span>Ocena: ${'⭐'.repeat(item.rating)}</span><br>
-                            <small class="has-text-grey-light">Zamknął: ${item.closed_by} | ${item.closed_at}</small>
-                        </div>
-                        <div class="buttons">
-                            <button class="button is-small btn-glow" onclick="viewTranscript(${index})">Wgląd</button>
-                            <button class="button is-small btn-danger-glow" onclick="deleteTranscript(${index})">Usuń</button>
-                        </div>
-                    `;
+                    const div = document.createElement('div'); div.className = 'archive-item';
+                    div.innerHTML = `<div><strong style="color:#fff; font-size:1.05rem;">#${item.channel_name}</strong> - <span>Ocena: ${'⭐'.repeat(item.rating)}</span><br><small class="has-text-grey-light">Zamknął: ${item.closed_by} | ${item.closed_at}</small></div>
+                        <div class="buttons"><button class="button is-small btn-glow" onclick="viewTranscript(${index})">Wgląd</button><button class="button is-small btn-danger-glow" onclick="deleteTranscript(${index})">Usuń</button></div>`;
                     archiveDiv.appendChild(div);
                 });
             });
         }
 
         function deleteTranscript(index) {
-            playClickSound();
-            if(!confirm("Usunąć trwale plik transkrypcji?")) return;
-            fetch(`/api/archive/delete/${index}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
-                if(data.success) { fetchArchive(); }
-            });
+            playClickSound(); if(!confirm("Usunąć trwale plik transkrypcji?")) return;
+            fetch(`/api/archive/delete/${index}`, { method: 'DELETE' }).then(res => res.json()).then(data => { if(data.success) fetchArchive(); });
         }
 
         function viewTranscript(index) {
-            playClickSound();
-            fetch('/api/archive').then(res => res.json()).then(data => {
-                const item = data[index];
-                const messagesDiv = document.getElementById('chat-messages');
+            playClickSound(); fetch('/api/archive').then(res => res.json()).then(data => {
+                const item = data[index]; const messagesDiv = document.getElementById('chat-messages');
                 switchTab({ currentTarget: document.querySelector("a[onclick*='chat-tab']") }, 'chat-tab');
-                
-                document.getElementById('chat-input-msg').disabled = true;
-                document.getElementById('chat-send-btn').disabled = true;
-                
+                document.getElementById('chat-input-msg').disabled = true; document.getElementById('chat-send-btn').disabled = true;
                 messagesDiv.innerHTML = `<div class="has-text-centered has-text-warning mb-3" style="font-size:0.85rem; letter-spacing:1px;">📜 LOGI ARCHIWALNE PROTOKOŁU #${item.channel_name}</div>`;
                 item.messages.forEach(msg => {
-                    const row = document.createElement('div');
-                    row.className = `chat-msg-row ${msg.is_bot ? 'bot' : 'user'}`;
+                    const row = document.createElement('div'); row.className = `chat-msg-row ${msg.is_bot ? 'bot' : 'user'}`;
                     row.innerHTML = `<div class="chat-msg-author">${msg.author}</div><div>${msg.content}</div><div class="chat-msg-time">${msg.time}</div>`;
                     messagesDiv.appendChild(row);
                 });
@@ -769,14 +637,9 @@ HTML_TEMPLATE = """
         const eventSource = new EventSource('/api/chat/stream');
         eventSource.onmessage = function(event) {
             const data = JSON.parse(event.data);
-            if(currentActiveChannelId && data.channel_id === currentActiveChannelId.toString()) {
-                appendMessageDOM(data);
-            }
+            if(currentActiveChannelId && data.channel_id === currentActiveChannelId.toString()) appendMessageDOM(data);
         };
-
-        setInterval(() => { 
-            if (document.getElementById('tickets-tab').classList.contains('is-active')) fetchTickets(); 
-        }, 6000);
+        setInterval(() => { if (document.getElementById('tickets-tab').classList.contains('is-active')) fetchTickets(); }, 6000);
     </script>
 </body>
 </html>
@@ -786,19 +649,10 @@ LOGIN_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head><title>Zaloguj</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">{{ SHARED_STYLE | safe }}</head>
-<body style="display: flex; align-items: center; min-height: 100vh;">
-    <div class="animated-bg"></div>
-    <div class="container">
-        <div class="box glass-box p-6" style="max-width: 440px; margin: 0 auto; animation: cyberSlideIn 0.6s ease;">
-            <h1 class="title is-3 glow-text has-text-centered mb-5" style="letter-spacing:1px;">🔒 SYSTEM AUTORYZACJI</h1>
-            <form method="POST" action="/login">
-                <div class="field mb-5"><input class="input custom-input py-4" type="password" name="password" required placeholder="Wprowadź klucz dostępu..."></div>
-                <button type="submit" class="button btn-glow is-fullwidth py-4">Autoryzuj wejście</button>
-            </form>
-        </div>
-    </div>
-</body>
-</html>
+<body style="display: flex; align-items: center; min-height: 100vh;"><div class="animated-bg"></div><div class="container">
+<div class="box glass-box p-6" style="max-width: 440px; margin: 0 auto;"><h1 class="title is-3 glow-text has-text-centered mb-5" style="letter-spacing:1px;">🔒 SYSTEM AUTORYZACJI</h1>
+<form method="POST" action="/login"><div class="field mb-5"><input class="input custom-input py-4" type="password" name="password" required placeholder="Wprowadź klucz dostępu..."></div><button type="submit" class="button btn-glow is-fullwidth py-4">Autoryzuj wejście</button></form>
+</div></div></body></html>
 """
 
 # ===============================
@@ -813,9 +667,7 @@ def home():
 
 @app.route('/login', methods=['POST'])
 def login():
-    if request.form.get('password') == DASHBOARD_PASSWORD:
-        session['logged_in'] = True
-        return redirect('/')
+    if request.form.get('password') == DASHBOARD_PASSWORD: session['logged_in'] = True; return redirect('/')
     return render_template_string(LOGIN_TEMPLATE, SHARED_STYLE=SHARED_STYLE)
 
 @app.route('/logout')
@@ -835,33 +687,29 @@ def api_tickets():
 @app.route('/api/chat/history/<int:channel_id>')
 def api_chat_history(channel_id):
     if not session.get('logged_in') or not bot_instance: return jsonify([])
-    channel = bot_instance.get_channel(channel_id)
+    channel = bot_instance.get_channel(channel_id) or asyncio.run_coroutine_threadsafe(bot_instance.fetch_channel(channel_id), bot_instance.loop).result()
     if not channel: return jsonify([])
     future = asyncio.run_coroutine_threadsafe(channel.history(limit=50, oldest_first=False).flatten(), bot_instance.loop)
     try:
-        messages = future.result()
-        messages.reverse()
+        messages = future.result(); messages.reverse()
         return jsonify([{"author": m.author.name, "content": m.content, "is_bot": m.author.bot, "time": m.created_at.strftime('%H:%M')} for m in messages])
     except: return jsonify([])
 
 @app.route('/api/chat/send', methods=['POST'])
 def api_chat_send():
     if not session.get('logged_in') or not bot_instance: return jsonify({"success": False})
-    data = request.json
-    channel = bot_instance.get_channel(int(data.get('channel_id')))
+    data = request.json; channel = bot_instance.get_channel(int(data.get('channel_id')))
     if channel: asyncio.run_coroutine_threadsafe(channel.send(data.get('message')), bot_instance.loop)
     return jsonify({"success": True})
 
 @app.route('/api/chat/stream')
 def chat_stream():
     def event_stream():
-        q = asyncio.Queue()
-        web_listeners.append(q)
+        q = asyncio.Queue(); web_listeners.append(q)
         try:
             while True:
                 future = asyncio.run_coroutine_threadsafe(q.get(), bot_instance.loop)
-                msg_data = future.result()
-                yield f"data: {json.dumps(msg_data)}\n\n"
+                yield f"data: {json.dumps(future.result())}\n\n"
         except GeneratorExit: web_listeners.remove(q)
     return Response(event_stream(), mimetype="text/event-stream")
 
@@ -871,8 +719,7 @@ def api_users():
     users_list = []
     for guild in bot_instance.guilds:
         for m in guild.members:
-            if not m.bot:
-                users_list.append({"id": str(m.id), "name": m.name, "avatar": str(m.display_avatar.url)})
+            if not m.bot: users_list.append({"id": str(m.id), "name": m.name, "avatar": str(m.display_avatar.url)})
     return jsonify(users_list)
 
 @app.route('/api/users/<int:user_id>')
@@ -883,56 +730,39 @@ def api_user_details(user_id):
         if m:
             all_server_roles = [r.name for r in guild.roles if r.name != "@everyone" and not r.managed]
             return jsonify({
-                "id": str(m.id),
-                "name": m.name,
-                "avatar": str(m.display_avatar.url),
+                "id": str(m.id), "name": m.name, "avatar": str(m.display_avatar.url),
                 "created_at": m.created_at.strftime('%Y-%m-%d %H:%M'),
                 "joined_at": m.joined_at.strftime('%Y-%m-%d %H:%M') if m.joined_at else "Nieznana",
-                "roles": [r.name for r in m.roles if r.name != "@everyone"],
-                "server_all_roles": all_server_roles
+                "roles": [r.name for r in m.roles if r.name != "@everyone"], "server_all_roles": all_server_roles
             })
     return jsonify({"error": "Nie znaleziono rekordu"})
 
 @app.route('/api/users/modify-role', methods=['POST'])
 def api_modify_role():
-    if not session.get('logged_in') or not bot_instance: return jsonify({"success": False, "error": "Brak sesji"})
-    data = request.json
-    user_id = int(data.get('user_id'))
-    action = data.get('action')
-    role_name = data.get('role_name')
-
+    if not session.get('logged_in') or not bot_instance: return jsonify({"success": False})
+    data = request.json; user_id = int(data.get('user_id')); action = data.get('action'); role_name = data.get('role_name')
     for guild in bot_instance.guilds:
-        m = guild.get_member(user_id)
-        role = utils.get(guild.roles, name=role_name)
+        m = guild.get_member(user_id); role = utils.get(guild.roles, name=role_name)
         if m and role:
             if action == 'add': asyncio.run_coroutine_threadsafe(m.add_roles(role), bot_instance.loop)
             elif action == 'remove': asyncio.run_coroutine_threadsafe(m.remove_roles(role), bot_instance.loop)
             return jsonify({"success": True})
-    return jsonify({"success": False, "error": "Błąd modyfikacji"})
+    return jsonify({"success": False})
 
 @app.route('/api/users/moderate', methods=['POST'])
 def api_moderate_user():
-    if not session.get('logged_in') or not bot_instance: return jsonify({"success": False, "error": "Brak autoryzacji"})
-    data = request.json
-    user_id = int(data.get('user_id'))
-    action = data.get('action')
-    reason = data.get('reason', "Brak podanego powodu.")
-
+    if not session.get('logged_in') or not bot_instance: return jsonify({"success": False})
+    data = request.json; user_id = int(data.get('user_id')); action = data.get('action'); reason = data.get('reason', "WWW Panel")
     for guild in bot_instance.guilds:
         m = guild.get_member(user_id)
         if m:
             try:
-                if action == 'timeout':
-                    duration = timedelta(hours=1)
-                    asyncio.run_coroutine_threadsafe(m.timeout(duration, reason=reason), bot_instance.loop)
-                elif action == 'kick':
-                    asyncio.run_coroutine_threadsafe(m.kick(reason=reason), bot_instance.loop)
-                elif action == 'ban':
-                    asyncio.run_coroutine_threadsafe(guild.ban(m, reason=reason, delete_message_days=0), bot_instance.loop)
+                if action == 'timeout': asyncio.run_coroutine_threadsafe(m.timeout(timedelta(hours=1), reason=reason), bot_instance.loop)
+                elif action == 'kick': asyncio.run_coroutine_threadsafe(m.kick(reason=reason), bot_instance.loop)
+                elif action == 'ban': asyncio.run_coroutine_threadsafe(guild.ban(m, reason=reason), bot_instance.loop)
                 return jsonify({"success": True})
-            except Exception as e:
-                return jsonify({"success": False, "error": f"Discord API Error: {str(e)}"})
-    return jsonify({"success": False, "error": "Nie znaleziono użytkownika"})
+            except Exception as e: return jsonify({"success": False, "error": str(e)})
+    return jsonify({"success": False})
 
 @app.route('/api/archive')
 def api_get_archive():
@@ -941,20 +771,16 @@ def api_get_archive():
 
 @app.route('/api/archive/delete/<int:index>', methods=['DELETE'])
 def api_delete_archive(index):
-    if not session.get('logged_in'): return jsonify({"success": False, "error": "Brak autoryzacji"})
+    if not session.get('logged_in'): return jsonify({"success": False})
     archive = load_archive()
-    if 0 <= index < len(archive):
-        archive.pop(index)
-        save_whole_archive(archive)
-        return jsonify({"success": True})
-    return jsonify({"success": False, "error": "Index out of bounds"})
+    if 0 <= index < len(archive): archive.pop(index); save_whole_archive(archive); return jsonify({"success": True})
+    return jsonify({"success": False})
 
 @app.route('/close-ticket-dash', methods=['POST'])
 def close_ticket_dash():
     if not session.get('logged_in') or not bot_instance: return redirect('/')
     ch_id = request.form.get('channel_id')
-    if ch_id and ch_id.isdigit():
-        asyncio.run_coroutine_threadsafe(trigger_ticket_close_flow(int(ch_id)), bot_instance.loop)
+    if ch_id and ch_id.isdigit(): asyncio.run_coroutine_threadsafe(trigger_ticket_close_flow(int(ch_id)), bot_instance.loop)
     return redirect('/')
 
 @app.route('/create-channel', methods=['POST'])
@@ -981,13 +807,12 @@ async def create_channel_async(name: str, channel_type: str):
 
 def keep_alive():
     t = Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080))))
-    t.daemon = True
-    t.start()
+    t.daemon = True; t.start()
 
 async def save_ticket_to_web_archive(channel_id: int, closing_user, rating: int, guild):
     target_channel = guild.get_channel(channel_id)
     if not target_channel: return
-    data = ticket_data_cache.get(channel_id, {"subject": "Brak opisu", "creator_mention": "Nieznany"})
+    data = ticket_data_cache.get(channel_id, {"subject": "Brak opisu"})
     messages_list = []
     try:
         async for msg in target_channel.history(limit=600, oldest_first=True):
@@ -1001,16 +826,111 @@ async def save_ticket_to_web_archive(channel_id: int, closing_user, rating: int,
     if channel_id in ticket_data_cache: del ticket_data_cache[channel_id]
 
 # ===============================
+# 🧩 GENERATOR CAPTCHA (PIL)
+# ===============================
+
+def generate_captcha_image(text: str) -> io.BytesIO:
+    # Tworzenie ciemnego, cyberpunkowego tła obrazka
+    img = Image.new('RGB', (160, 60), color=(15, 12, 28))
+    d = ImageDraw.Draw(img)
+    
+    # Rysowanie losowych linii zakłócających (anty-bot)
+    for _ in range(5):
+        d.line([(random.randint(0, 160), random.randint(0, 60)), (random.randint(0, 160), random.randint(0, 60))], fill=(88, 101, 242), width=1)
+    
+    # Używamy standardowej czcionki wbudowanej, by nie wymagać plików .ttf na dysku
+    # Wypisywanie znaków z delikatnym przesunięciem
+    for i, char in enumerate(text):
+        d.text((15 + i * 35, 15), char, fill=(0, 242, 254))
+        
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    buf.seek(0)
+    return buf
+
+# ===============================
 # 📊 WIDOKI I ANKIETY INTERAKTYWNE
 # ===============================
 
+class CaptchaSubmitModal(Modal):
+    def __init__(self):
+        super().__init__(title="Weryfikacja Konta")
+        self.code_input = TextInput(label="Wpisz kod z obrazka CAPTCHA", placeholder="Wprowadź 4 znaki...", required=True, min_length=4, max_length=4)
+        self.add_item(self.code_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        user_id = interaction.user.id
+        correct_code = captcha_sessions.get(user_id)
+        
+        if not correct_code:
+            await interaction.response.send_message("❌ Sesja weryfikacji wygasła. Spróbuj ponownie na serwerze.", ephemeral=True)
+            return
+            
+        if self.code_input.value.upper() == correct_code:
+            # Szukamy gildii na której użytkownik się weryfikuje
+            for guild in bot_instance.guilds:
+                member = guild.get_member(user_id)
+                if member:
+                    role = utils.get(guild.roles, name="ZWERYFIKOWANY")
+                    if not role:
+                        # Jeśli ranga nie istnieje, spróbujemy ją stworzyć w locie
+                        try: role = await guild.create_role(name="ZWERYFIKOWANY", reason="Automatyczny system weryfikacji.")
+                        except: pass
+                    
+                    if role:
+                        await member.add_roles(role)
+                        del captcha_sessions[user_id]
+                        await interaction.response.send_message("✅ Autoryzacja pomyślna! Otrzymałeś rangę `ZWERYFIKOWANY`.", ephemeral=True)
+                        return
+            await interaction.response.send_message("❌ Wystąpił błąd podczas dodawania rangi. Skontaktuj się z administratorem.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ Błędny kod CAPTCHA! Spróbuj ponownie.", ephemeral=True)
+
+class CaptchaDMView(View):
+    def __init__(self): super().__init__(timeout=300)
+    @discord.ui.button(label="🔑 Wpisz Kod", style=discord.ButtonStyle.success, custom_id="submit_captcha_btn")
+    async def submit_captcha(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.send_modal(CaptchaSubmitModal())
+
+class VerificationSetupView(View):
+    def __init__(self): super().__init__(timeout=None)
+    @discord.ui.button(label="🔐 Rozpocznij Weryfikację", style=discord.ButtonStyle.primary, custom_id="start_verification_btn")
+    async def start_verification(self, interaction: discord.Interaction, button: Button):
+        # Sprawdzamy czy użytkownik ma już rangę
+        role = utils.get(interaction.user.roles, name="ZWERYFIKOWANY")
+        if role:
+            await interaction.response.send_message("ℹ️ Jesteś już zweryfikowany na tym serwerze!", ephemeral=True)
+            return
+            
+        await interaction.response.send_message("📩 Sprawdź swoje wiadomości prywatne (DM) – wysłaliśmy tam kod CAPTCHA.", ephemeral=True)
+        
+        # Generowanie losowego kodu
+        chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # wykluczone mylące znaki typu O, 0, I, 1
+        captcha_code = "".join(random.choice(chars) for _ in range(4))
+        captcha_sessions[interaction.user.id] = captcha_code
+        
+        # Generowanie i wysyłka obrazka
+        img_buf = generate_captcha_image(captcha_code)
+        file = File(fp=img_buf, filename="captcha.png")
+        
+        embed = Embed(
+            title="🔒 Weryfikacja Serwerowa", 
+            description="Przepisz kod z poniższego obrazka klikając zielony przycisk.\nWielkość liter nie ma znaczenia.", 
+            color=0x5865f2
+        )
+        embed.set_image(url="attachment://captcha.png")
+        
+        try:
+            await interaction.user.send(embed=embed, file=file, view=CaptchaDMView())
+        except discord.Forbidden:
+            # Obsługa błędu gdy ktoś ma zablokowane wiadomości prywatne
+            pass
+
+# (Wcześniejsze klasy widoków ticketów bez zmian)
 class TicketSurveyView(View):
     def __init__(self): super().__init__(timeout=None)
     async def handle_rating(self, interaction: discord.Interaction, rating: int):
-        await interaction.response.defer()
-        channel_id = interaction.channel_id
-        closing_user = interaction.user
-        guild = interaction.guild
+        await interaction.response.defer(); channel_id = interaction.channel_id; closing_user = interaction.user; guild = interaction.guild
         if guild: await save_ticket_to_web_archive(channel_id, closing_user, rating, guild)
         for child in self.children: child.disabled = True
         try: await interaction.message.edit(content=f"⭐ Dziękujemy za ocenę: **{rating}/5**!", view=self)
@@ -1042,13 +962,10 @@ class TicketCreateModal(Modal):
         super().__init__(title="Formularz Zgłoszenia")
         self.subject = TextInput(label="Temat zgłoszenia", placeholder="Np. Błąd konfiguracji...", required=True)
         self.description = TextInput(label="Opis problemu", style=discord.TextStyle.paragraph, placeholder="Opisz dokładnie sytuację...", required=True)
-        self.add_item(self.subject)
-        self.add_item(self.description)
+        self.add_item(self.subject); self.add_item(self.description)
 
     async def on_submit(self, interaction: discord.Interaction):
-        guild = interaction.guild
-        member = interaction.user
-        channel_name = f"ticket-{member.name.lower()}".replace(" ", "-")
+        guild = interaction.guild; member = interaction.user; channel_name = f"ticket-{member.name.lower()}".replace(" ", "-")
         if utils.get(guild.text_channels, name=channel_name):
             await interaction.response.send_message("❌ Masz już aktywny kanał wsparcia!", ephemeral=True)
             return
@@ -1082,20 +999,20 @@ class TicketSetupView(View):
 # ===============================
 
 intents = Intents.default()
-intents.message_content = True
-intents.members = True
+intents.message_content = True; intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 @bot.event
 async def setup_hook():
-    global bot_instance
-    bot_instance = bot
+    global bot_instance; bot_instance = bot
+    # Rejestracja widoków w celu zachowania ich działania po restarcie bota
     bot.add_view(TicketSetupView())
     bot.add_view(TicketActionView())
     bot.add_view(TicketSurveyView())
+    bot.add_view(VerificationSetupView())
 
 @bot.event
-async def on_ready(): print(f'🤖 System Cyber-Glow z gwiezdnym tłem i audio Matrix jest gotowy.')
+async def on_ready(): print(f'🤖 System Cyber-Glow & CAPTCHA Weryfikacji aktywny.')
 
 @bot.event
 async def on_message(message):
@@ -1112,7 +1029,18 @@ async def on_message(message):
 @commands.has_permissions(administrator=True)
 async def send_ticket_panel(ctx):
     embed = Embed(title="🎫 Centrum Wsparcia", description="Kliknij przycisk, aby otworzyć bezpieczne połączenie z administracją.", color=0x2ed573)
-    await ctx.send(embed=embed, view=TicketSetupView())
+    await ctx.send(embed=embed, view=TicketSetupView()); await ctx.message.delete()
+
+# Komenda do postawienia panelu weryfikacyjnego
+@bot.command(name="setup-weryfikacja")
+@commands.has_permissions(administrator=True)
+async def send_verification_panel(ctx):
+    embed = Embed(
+        title="🔐 SYSTEM WERYFIKACJI", 
+        description="Aby uzyskać dostęp do pozostałych sekcji serwera, przejdź proces autoryzacji CAPTCHA.\n\nKliknij przycisk poniżej, aby otrzymać unikalny token dostępu.", 
+        color=0x5865f2
+    )
+    await ctx.send(embed=embed, view=VerificationSetupView())
     await ctx.message.delete()
 
 if __name__ == "__main__":
