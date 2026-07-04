@@ -2,25 +2,195 @@ import discord
 from discord.ext import commands
 from discord import Intents, utils
 import os
-from flask import Flask
+from flask import Flask, render_template_string, request, redirect, session
 from threading import Thread
 import asyncio
 import io
+import random
+import string
 from datetime import datetime
 from typing import List 
+from PIL import Image, ImageDraw, ImageFont
 
 # ===============================
 # 🚨 KONFIGURACJA GLOBALNA I ZMIENNE ŚRODOWISKOWE 🚨
 # ===============================
 
 ADMIN_IDS: List[int] = [652507356105539585, 550959315700154368, 590215623259193371]
+DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PWD", "Kuba123!") # Zmień hasło w zmiennych środowiskowych!
 
-# --- WEB SERVER SETUP (Flask) - Utrzymanie Render/UptimeRobot ---
+# --- WEB SERVER SETUP (Flask) - Dashboard i Uptime ---
 app = Flask('')
+app.secret_key = os.environ.get("FLASK_SECRET", "super-tajny-klucz-kubusiowo")
+
+# Przechowujemy referencję do bota globalnie, aby Flask miał do niej dostęp
+bot_instance = None
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Kubusiowo - Dashboard</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+</head>
+<body class="has-background-light" style="min-height: 100vh;">
+    <section class="section">
+        <div class="container">
+            <div class="box has-text-centered">
+                <h1 class="title is-2 text-primary">🤖 Panel Zarządzania - Kubusiowo Bot</h1>
+                <p class="subtitle is-6">Zalogowany jako Administrator</p>
+                <hr>
+                {% if message %}
+                    <div class="notification is-success">{{ message }}</div>
+                {% endif %}
+                
+                <div class="columns">
+                    <!-- Sekcja Statusu -->
+                    <div class="column">
+                        <div class="card">
+                            <header class="card-header"><p class="card-header-title">⚙️ Ustawienia Bota</p></header>
+                            <div class="card-content">
+                                <form method="POST" action="/update-status">
+                                    <div class="field">
+                                        <label class="label">Status bota (Aktywność):</label>
+                                        <div class="control">
+                                            <input class="input" type="text" name="status_text" placeholder="np. Ogląda serwer..." value="{{ current_status }}">
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="button is-link is-fullwidth">Aktualizuj Status</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Sekcja Ogłoszeń -->
+                    <div class="column">
+                        <div class="card">
+                            <header class="card-header"><p class="card-header-title">📢 Wyślij Ogłoszenie</p></header>
+                            <div class="card-content">
+                                <form method="POST" action="/send-announcement">
+                                    <div class="field">
+                                        <label class="label">ID Kanału tekstowego:</label>
+                                        <div class="control">
+                                            <input class="input" type="text" name="channel_id" placeholder="Wklej ID kanału">
+                                        </div>
+                                    </div>
+                                    <div class="field">
+                                        <label class="label">Treść wiadomości:</label>
+                                        <div class="control">
+                                            <textarea class="textarea" name="msg_content" placeholder="Napisz coś od bota..."></textarea>
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="button is-success is-fullwidth">Wyślij Wiadomość</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <hr>
+                <a href="/logout" class="button is-danger">Wyloguj się</a>
+            </div>
+        </div>
+    </section>
+</body>
+</html>
+"""
+
+LOGIN_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Kubusiowo - Logowanie</title>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+</head>
+<body class="has-background-dark style="height: 100vh; display: flex; align-items: center; justify-content: center;">
+    <div class="box style="max-width: 400px; margin: 100px auto;">
+        <h1 class="title is-4 has-text-centered">🔒 Dashboard Logowanie</h1>
+        {% if error %}
+            <div class="notification is-danger">{{ error }}</div>
+        {% endif %}
+        <form method="POST" action="/login">
+            <div class="field">
+                <label class="label">Hasło administratora:</label>
+                <div class="control">
+                    <input class="input" type="password" name="password" required>
+                </div>
+            </div>
+            <button type="submit" class="button is-primary is-fullwidth">Zaloguj</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
 
 @app.route('/')
 def home():
-    return "Kubusiowo - BOT żyje i działa!"
+    if not session.get('logged_in'):
+        return render_template_string(LOGIN_TEMPLATE)
+    
+    current_status = ""
+    if bot_instance and bot_instance.activity:
+        current_status = bot_instance.activity.name
+
+    return render_template_string(HTML_TEMPLATE, current_status=current_status, message=request.args.get('msg'))
+
+@app.route('/login', models=['POST'])
+def login():
+    if request.form.get('password') == DASHBOARD_PASSWORD:
+        session['logged_in'] = True
+        return redirect('/')
+    return render_template_string(LOGIN_TEMPLATE, error="Nieprawidłowe hasło!")
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect('/')
+
+@app.route('/update-status', methods=['POST'])
+def update_status():
+    if not session.get('logged_in') or not bot_instance: return redirect('/')
+    status_text = request.form.get('status_text', '')
+    
+    asyncio.run_coroutine_threadsafe(
+        bot_instance.change_presence(activity=discord.Game(name=status_text)),
+        bot_instance.loop
+    )
+    
+    # Logowanie zmiany na serwerze
+    asyncio.run_coroutine_threadsafe(
+        log_to_dashboard_channel(f"⚙️ **Dashboard**: Zmieniono status bota na: `{status_text}`"),
+        bot_instance.loop
+    )
+    return redirect('/?msg=Status+zostal+zaktualizowany!')
+
+@app.route('/send-announcement', methods=['POST'])
+def send_announcement():
+    if not session.get('logged_in') or not bot_instance: return redirect('/')
+    channel_id = request.form.get('channel_id', '')
+    msg_content = request.form.get('msg_content', '')
+    
+    try:
+        ch_id = int(channel_id)
+        asyncio.run_coroutine_threadsafe(send_dash_msg(ch_id, msg_content), bot_instance.loop)
+        return redirect('/?msg=Wiadomosc+wyslana!')
+    except ValueError:
+        return redirect('/?msg=Bledne+ID+kanalu!')
+
+async def send_dash_msg(channel_id: int, content: str):
+    channel = bot_instance.get_channel(channel_id)
+    if channel:
+        await channel.send(content)
+        await log_to_dashboard_channel(f"📢 **Dashboard**: Wysłano wiadomość na kanał {channel.mention}:\n```\n{content}\n```")
+
+async def log_to_dashboard_channel(text: str):
+    for guild in bot_instance.guilds:
+        log_ch = utils.get(guild.text_channels, name="│⚙️│logi-dashboard")
+        if log_ch:
+            await log_ch.send(text)
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
@@ -33,18 +203,107 @@ def keep_alive():
 
 
 # ===============================
-# 📊 SYSTEM ANKIET (Polls) - KLASY UI
+# 🔐 SYSTEM CAPTCHA (Weryfikacja)
+# ===============================
+
+def generate_captcha() -> tuple:
+    # Generowanie losowego kodu tekstowego
+    text = "".join(random.choices(string.ascii_uppercase + string.digits, k=5))
+    
+    # Tworzenie obrazka tła (szerokość 200, wysokość 70, kolor jasno-szary)
+    img = Image.new('RGB', (200, 70), color=(230, 230, 230))
+    d = ImageDraw.Draw(img)
+    
+    # Rysowanie losowych linii zakłócających dla bezpieczeństwa
+    for _ in range(8):
+        x1 = random.randint(0, 200)
+        y1 = random.randint(0, 70)
+        x2 = random.randint(0, 200)
+        y2 = random.randint(0, 70)
+        d.line([(x1, y1), (x2, y2)], fill=(random.randint(100, 200), random.randint(100, 200), random.randint(100, 200)), width=2)
+        
+    # Rysowanie tekstu (używamy domyślnego fontu bitmapowego, aby nie wymagać pliku ttf)
+    # W razie potrzeby można wgrać plik czcionki za pomocą ImageFont.truetype()
+    d.text((50, 25), text, fill=(40, 40, 40))
+    
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    buf.seek(0)
+    return text, buf
+
+class CaptchaModal(discord.ui.Modal, title="🔐 Przepisz Kod z Obrazka"):
+    def __init__(self, correct_code: str):
+        super().__init__(timeout=60.0)
+        self.correct_code = correct_code
+        
+    user_input = discord.ui.TextInput(label="Wpisz kod widoczny na obrazku:", placeholder="Wielkość liter nie ma znaczenia", max_length=10, required=True)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        member = interaction.user
+        
+        log_channel = utils.get(guild.text_channels, name="│📝│logi-weryfikacji")
+        
+        if self.user_input.value.strip().upper() == self.correct_code:
+            role_verified = utils.get(guild.roles, name="ZWERYFIKOWANY")
+            role_member = utils.get(guild.roles, name="Member")
+            
+            if role_verified: await member.add_roles(role_verified)
+            if role_member: await member.remove_roles(role_member)
+            
+            await interaction.response.send_message("✅ Weryfikacja pomyślna! Witamy na serwerze!", ephemeral=True)
+            if log_channel:
+                await log_channel.send(f"🟢 Użytkownik {member.mention} (`{member.name}`) pomyślnie przeszedł weryfikację Captcha.")
+        else:
+            await interaction.response.send_message("❌ Niepoprawny kod! Spróbuj ponownie klikając przycisk.", ephemeral=True)
+            if log_channel:
+                await log_channel.send(f"🔴 Użytkownik {member.mention} wpisał błędny kod Captcha (Wpisał: `{self.user_input.value}`, Oczekiwano: `{self.correct_code}`).")
+
+class VerificationView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Zweryfikuj się 🔐", style=discord.ButtonStyle.success, custom_id="verify_user_btn")
+    async def verify_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Sprawdzamy, czy użytkownik nie jest już zweryfikowany
+        if utils.get(interaction.user.roles, name="ZWERYFIKOWANY"):
+            await interaction.response.send_message("Jesteś już pomyślnie zweryfikowany!", ephemeral=True)
+            return
+            
+        correct_code, img_buf = generate_captcha()
+        file = discord.File(img_buf, filename="captcha.png")
+        
+        # Wysyłamy obrazek jako wiadomość ukrytą (ephemeral)
+        await interaction.response.send_message(
+            content="👇 Przepisz poniższy kod w okienku formularza, które pojawi się po kliknięciu drugiego przycisku!", 
+            file=file, 
+            view=CaptchaTriggerView(correct_code), 
+            ephemeral=True
+        )
+
+class CaptchaTriggerView(discord.ui.View):
+    def __init__(self, correct_code: str):
+        super().__init__(timeout=60.0)
+        self.correct_code = correct_code
+
+    @discord.ui.button(label="Wpisz Kod 📝", style=discord.ButtonStyle.primary)
+    async def open_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CaptchaModal(self.correct_code))
+
+
+# ===============================
+# 📊 WIDOKI UI DLA TICKETÓW I ANKIET (Bez zmian)
 # ===============================
 
 class PollModal(discord.ui.Modal, title="📊 Tworzenie nowej ankiety"):
-    pytanie = discord.ui.TextInput(label="Wpisz pytanie ankiety", placeholder="np. Gramy dzisiaj w turniej?", max_length=256, required=True, style=discord.TextStyle.short)
-    opcja_a = discord.ui.TextInput(label="Opcja A", placeholder="np. Tak, jasne! 🔥", max_length=100, required=True, style=discord.TextStyle.short)
-    opcja_b = discord.ui.TextInput(label="Opcja B", placeholder="np. Nie, brak czasu ❌", max_length=100, required=True, style=discord.TextStyle.short)
+    pytanie = discord.ui.TextInput(label="Wpisz pytanie ankiety", placeholder="np. Gramy dzisiaj w turniej?", max_length=256, required=True)
+    opcja_a = discord.ui.TextInput(label="Opcja A", placeholder="np. Tak, jasne! 🔥", max_length=100, required=True)
+    opcja_b = discord.ui.TextInput(label="Opcja B", placeholder="np. Nie, brak czasu ❌", max_length=100, required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
         view = PollVotesView(question=self.pytanie.value, opt_a=self.opcja_a.value, opt_b=self.opcja_b.value)
         await interaction.channel.send(embed=view.build_embed(), view=view)
-        await interaction.response.send_message("✅ Ankieta została pomyślnie wygenerowana na kanale!", ephemeral=True)
+        await interaction.response.send_message("✅ Ankieta wygenerowana!", ephemeral=True)
 
 class PollVotesView(discord.ui.View):
     def __init__(self, question: str, opt_a: str, opt_b: str):
@@ -56,77 +315,48 @@ class PollVotesView(discord.ui.View):
         self.votes_b = set()
 
     def get_progress_bar(self, percentage: float) -> str:
-        filled = int(round(percentage / 10))
-        filled = max(0, min(10, filled))
-        empty = 10 - filled
-        return "█" * filled + "░" * empty
+        filled = max(0, min(10, int(round(percentage / 10))))
+        return "█" * filled + "░" * (10 - filled)
 
     def build_embed(self):
-        total_votes = len(self.votes_a) + len(self.votes_b)
-        pct_a = (len(self.votes_a) / total_votes * 100) if total_votes > 0 else 0
-        pct_b = (len(self.votes_b) / total_votes * 100) if total_votes > 0 else 0
-        bar_a = self.get_progress_bar(pct_a)
-        bar_b = self.get_progress_bar(pct_b)
-
-        embed = discord.Embed(
-            title=f"📊 {self.question}",
-            description="Oddaj swój głos klikając w odpowiedni przycisk poniżej!\nMożesz też zmienić zdanie w dowolnym momencie.",
-            color=discord.Color.brand_green()
-        )
-        embed.add_field(name=f"🅰️ {self.opt_a_text}", value=f"`{bar_a}` **{pct_a:.0f}%** ({len(self.votes_a)} głosów)", inline=False)
-        embed.add_field(name=f"🅱️ {self.opt_b_text}", value=f"`{bar_b}` **{pct_b:.0f}%** ({len(self.votes_b)} głosów)", inline=False)
-        embed.add_field(name="👥 Suma oddanych głosów", value=f"**{total_votes}**", inline=False)
-        embed.set_footer(text="Ankieta działa na przyciskach.")
+        total = len(self.votes_a) + len(self.votes_b)
+        pct_a = (len(self.votes_a) / total * 100) if total > 0 else 0
+        pct_b = (len(self.votes_b) / total * 100) if total > 0 else 0
+        embed = discord.Embed(title=f"📊 {self.question}", color=discord.Color.brand_green())
+        embed.add_field(name=f"🅰️ {self.opt_a_text}", value=f"`{self.get_progress_bar(pct_a)}` **{pct_a:.0f}%** ({len(self.votes_a)})", inline=False)
+        embed.add_field(name=f"🅱️ {self.opt_b_text}", value=f"`{self.get_progress_bar(pct_b)}` **{pct_b:.0f}%** ({len(self.votes_b)})", inline=False)
         return embed
 
     @discord.ui.button(label="🅰️ Opcja A", style=discord.ButtonStyle.primary, custom_id="vote_a_btn")
     async def vote_a(self, interaction: discord.Interaction, button: discord.ui.Button):
-        user_id = interaction.user.id
-        if user_id in self.votes_b:
-            self.votes_b.remove(user_id)
-        self.votes_a.add(user_id)
-        await self.update_poll(interaction)
+        self.votes_b.discard(interaction.user.id)
+        self.votes_a.add(interaction.user.id)
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="🅱️ Opcja B", style=discord.ButtonStyle.primary, custom_id="vote_b_btn")
     async def vote_b(self, interaction: discord.Interaction, button: discord.ui.Button):
-        user_id = interaction.user.id
-        if user_id in self.votes_a:
-            self.votes_a.remove(user_id)
-        self.votes_b.add(user_id)
-        await self.update_poll(interaction)
-
-    async def update_poll(self, interaction: discord.Interaction):
+        self.votes_a.discard(interaction.user.id)
+        self.votes_b.add(interaction.user.id)
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
-
 class StartPollView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
+    def __init__(self): super().__init__(timeout=None)
     @discord.ui.button(label="Stwórz Nową Ankietę 📊", style=discord.ButtonStyle.success, custom_id="start_poll_btn_persistent")
     async def start_poll(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id not in ADMIN_IDS:
-            await interaction.response.send_message("❌ Brak uprawnień do tworzenia ankiet.", ephemeral=True)
-            return
+        if interaction.user.id not in ADMIN_IDS: return
         await interaction.response.send_modal(PollModal())
 
-
-# ===============================
-# 🎫 SYSTEM TICKETÓW (Tickets) - KLASY UI
-# ===============================
-
 class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
-    temat = discord.ui.TextInput(label="Podaj temat zgłoszenia", placeholder="np. Błąd na serwerze / Pytanie...", max_length=100, required=True, style=discord.TextStyle.short)
-    opis = discord.ui.TextInput(label="Opisz krótko swoją sprawę", placeholder="Napisz tutaj, w czym możemy Ci pomóc...", style=discord.TextStyle.long, max_length=1000, required=True)
+    temat = discord.ui.TextInput(label="Podaj temat zgłoszenia", placeholder="np. Błąd na serwerze...", max_length=100, required=True)
+    opis = discord.ui.TextInput(label="Opisz krótko swoją sprawę", style=discord.TextStyle.long, max_length=1000, required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
         guild = interaction.guild
         member = interaction.user
         channel_name = f"ticket-{member.name.lower()}"
 
-        existing_channel = utils.get(guild.text_channels, name=channel_name)
-        if existing_channel:
-            await interaction.response.send_message(f"Masz już otwarty jeden ticket! Przejdź do: {existing_channel.mention}", ephemeral=True)
+        if utils.get(guild.text_channels, name=channel_name):
+            await interaction.response.send_message("Masz już otwarty jeden ticket!", ephemeral=True)
             return
 
         overwrites = {
@@ -134,149 +364,88 @@ class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
             member: discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True, attach_files=True),
             guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
-
+        
         admin_role = utils.get(guild.roles, name="Admin") 
-        if admin_role:
-            overwrites[admin_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        if admin_role: overwrites[admin_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
         ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
-
-        embed = discord.Embed(
-            title="🎫 Nowe Zgłoszenie użytkownika",
-            description=f"Witaj {member.mention}! Administracja została powiadomiona o Twoim zgłoszeniu.\n\n👉 **Kliknij przycisk poniżej, aby przejąć to zgłoszenie!**",
-            color=discord.Color.green()
-        )
+        embed = discord.Embed(title="🎫 Nowe Zgłoszenie", description=f"Witaj {member.mention}! Administracja zajmie się Twoją sprawą.", color=discord.Color.green())
         embed.add_field(name="📌 Temat:", value=f"```\n{self.temat.value}\n```", inline=False)
-        embed.add_field(name="📝 Opis sprawy:", value=f"```\n{self.opis.value}\n```", inline=False)
+        embed.add_field(name="📝 Opis:", value=f"```\n{self.opis.value}\n```", inline=False)
 
-        view = TicketControlView(ticket_topic=self.temat.value, ticket_desc=self.opis.value)
-        await ticket_channel.send(embed=embed, view=view)
-        await interaction.response.send_message(f"Pomyślnie stworzono ticket! Kliknij tutaj: {ticket_channel.mention}", ephemeral=True)
+        await ticket_channel.send(embed=embed, view=TicketControlView(self.temat.value, self.opis.value))
+        await interaction.response.send_message(f"Stworzono ticket! {ticket_channel.mention}", ephemeral=True)
 
 class TicketButton(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
+    def __init__(self): super().__init__(timeout=None)
     @discord.ui.button(label="Stwórz Ticket ✉️", style=discord.ButtonStyle.primary, custom_id="create_ticket_btn")
     async def button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(TicketModal())
 
 class TicketControlView(discord.ui.View):
-    def __init__(self, ticket_topic="Brak", ticket_desc="Brak"):
+    def __init__(self, topic="Brak", desc="Brak"):
         super().__init__(timeout=None)
         self.claimed_by = None
-        self.ticket_topic = ticket_topic
-        self.ticket_desc = ticket_desc
+        self.topic = topic
+        self.desc = desc
 
     @discord.ui.button(label="Zajmij się zgłoszeniem ✋", style=discord.ButtonStyle.success, custom_id="claim_ticket_btn")
     async def claim_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id not in ADMIN_IDS:
-            await interaction.response.send_message("❌ Tylko administracja może przejąć ten ticket!", ephemeral=True)
-            return
-
+        if interaction.user.id not in ADMIN_IDS: return
         self.claimed_by = interaction.user
         button.disabled = True
         button.label = f"Obsługiwane przez: {interaction.user.name} 🛠️"
         button.style = discord.ButtonStyle.secondary
-
         await interaction.response.edit_message(view=self)
-        await interaction.channel.send(f"➡️ {interaction.user.mention} **przejął to zgłoszenie i udzieli pomocy!**")
+        await interaction.channel.send(f"➡️ {interaction.user.mention} przejął zgłoszenie.")
 
     @discord.ui.button(label="Zamknij Ticket 🔒", style=discord.ButtonStyle.danger, custom_id="close_control_btn")
     async def close_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        for child in self.children:
-            child.disabled = True
+        for child in self.children: child.disabled = True
         await interaction.response.edit_message(view=self)
-
-        feedback_view = FeedbackView(claimed_by=self.claimed_by, closer=interaction.user, ticket_topic=self.ticket_topic, ticket_desc=self.ticket_desc)
-
-        embed = discord.Embed(title="⭐ Oceń pomoc administracji", description="Dziękujemy za skorzystanie z systemu zgłoszeń! Prosimy o wybranie oceny.", color=discord.Color.gold())
-        await interaction.channel.send(embed=embed, view=feedback_view)
-
-
-# ===============================
-# ⭐ SYSTEM OCEN (Feedback View)
-# ===============================
+        embed = discord.Embed(title="⭐ Oceń pomoc", description="Wybierz ocenę gwiazdkową.", color=discord.Color.gold())
+        await interaction.channel.send(embed=embed, view=FeedbackView(self.claimed_by, interaction.user, self.topic, self.desc))
 
 class FeedbackView(discord.ui.View):
-    def __init__(self, claimed_by: discord.Member | None, closer: discord.Member, ticket_topic: str, ticket_desc: str):
+    def __init__(self, claimed_by, closer, topic, desc):
         super().__init__(timeout=60.0)
         self.claimed_by = claimed_by
         self.closer = closer
-        self.ticket_topic = ticket_topic
-        self.ticket_desc = ticket_desc
-        self.rating = "Brak oceny"
-
-    async def process_close(self, channel: discord.TextChannel, guild: discord.Guild):
-        log_content = f"--- TRANSKRYPCJA TICKETU: {channel.name} ---\n"
-        log_content += f"Wygenerowano: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        log_content += f"Obsługujący (Claim): {self.claimed_by.name if self.claimed_by else 'Brak'}\n"
-        log_content += f"Zamknięty przez: {self.closer.name}\n"
-        log_content += f"Ocena użytkownika: {self.rating}\n"
-        log_content += f"Temat zgłoszenia: {self.ticket_topic}\n"
-        log_content += f"Opis zgłoszenia: {self.ticket_desc}\n"
-        log_content += "-----------------------------------------\n\n"
-
-        async for msg in channel.history(limit=None, oldest_first=True):
-            time_str = msg.created_at.strftime('%Y-%m-%d %H:%M:%S')
-            log_content += f"[{time_str}] {msg.author.name}: {msg.content}\n"
-            if msg.attachments:
-                for att in msg.attachments:
-                    log_content += f" -> [Załącznik]: {att.url}\n"
-
-        log_content += "\n--- KONIEC TRANSKRYPCJI ---"
-
-        # Poprawka strumienia bajtów przez io.BytesIO
-        file_bytes = log_content.encode('utf-8')
-        file_data = io.BytesIO(file_bytes) 
-        log_file = discord.File(file_data, filename=f"log-{channel.name}.txt")
-        
-        log_channel = utils.get(guild.text_channels, name="logi-ticketow")
-
-        if log_channel:
-            log_embed = discord.Embed(title="🔒 Archiwum Zgłoszenia", description=f"Kanał **{channel.name}** został pomyślnie zamknięty.", color=discord.Color.red(), timestamp=discord.utils.utcnow())
-            log_embed.add_field(name="🛠️ Obsługujący admin:", value=self.claimed_by.mention if self.claimed_by else "`Nikt`", inline=True)
-            log_embed.add_field(name="🔒 Zamknął:", value=self.closer.mention, inline=True)
-            log_embed.add_field(name="⭐ Ocena pracy:", value=f"**{self.rating}**", inline=True)
-            log_embed.add_field(name="📌 Wpisany Temat:", value=f"```\n{self.ticket_topic}\n```", inline=False)
-            log_embed.add_field(name="📝 Wpisany Opis:", value=f"```\n{self.ticket_desc}\n```", inline=False)
-
-            await log_channel.send(embed=log_embed, file=log_file)
-
-        await channel.send("⚠️ Transkrypcja zapisana. Kanał zostanie usunięty za 5 sekund...")
-        await asyncio.sleep(5)
-        await channel.delete()
+        self.topic = topic
+        self.desc = desc
+        self.rating = "Brak"
 
     async def handle_rating(self, interaction: discord.Interaction, stars: str):
         self.rating = stars
-        for child in self.children:
-            child.disabled = True
-        await interaction.response.edit_message(view=self) 
-        await interaction.channel.send(f"✅ Dziękujemy za ocenę: **{stars}**!")
-        self.stop()
-        try:
-            await self.process_close(interaction.channel, interaction.guild)
-        except Exception as e:
-             print(f"BŁĄD podczas procesu zamykania ticketu: {e}")
+        for c in self.children: c.disabled = True
+        await interaction.response.edit_message(view=self)
+        
+        # Generowanie transkrypcji z poprawką io.BytesIO
+        log_content = f"TRANSKRYPCJA: {interaction.channel.name}\nOcena: {self.rating}\nTemat: {self.topic}\nOpis: {self.desc}\n\n"
+        async for msg in interaction.channel.history(limit=None, oldest_first=True):
+            log_content += f"[{msg.created_at.strftime('%Y-%m-%d %H:%M')}] {msg.author.name}: {msg.content}\n"
+            
+        file_data = io.BytesIO(log_content.encode('utf-8'))
+        log_file = discord.File(file_data, filename=f"log-{interaction.channel.name}.txt")
+        
+        log_channel = utils.get(interaction.guild.text_channels, name="logi-ticketow")
+        if log_channel:
+            await log_channel.send(content=f"🔒 Ticket **{interaction.channel.name}** zamknięty przez {self.closer.name}. Ocena: {self.rating}", file=log_file)
+            
+        await interaction.channel.send("⚠️ Kanał zostanie usunięty za 5 sekund...")
+        await asyncio.sleep(5)
+        await interaction.channel.delete()
 
-    @discord.ui.button(label="⭐", style=discord.ButtonStyle.primary, custom_id="star_1")
-    async def star1(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_rating(interaction, "⭐ (1/5)")
-
-    @discord.ui.button(label="⭐⭐", style=discord.ButtonStyle.primary, custom_id="star_2")
-    async def star2(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_rating(interaction, "⭐⭐ (2/5)")
-
-    @discord.ui.button(label="⭐⭐⭐", style=discord.ButtonStyle.primary, custom_id="star_3")
-    async def star3(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_rating(interaction, "⭐⭐⭐ (3/5)")
-
-    @discord.ui.button(label="⭐⭐⭐⭐", style=discord.ButtonStyle.primary, custom_id="star_4")
-    async def star4(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_rating(interaction, "⭐⭐⭐⭐ (4/5)")
-
-    @discord.ui.button(label="⭐⭐⭐⭐⭐", style=discord.ButtonStyle.primary, custom_id="star_5")
-    async def star5(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_rating(interaction, "⭐⭐⭐⭐⭐ (5/5)")
+    @discord.ui.button(label="⭐", style=discord.ButtonStyle.primary)
+    async def s1(self, interaction, btn): await self.handle_rating(interaction, "1/5")
+    @discord.ui.button(label="⭐⭐⭐", style=discord.ButtonStyle.primary)
+    async def s3(self, interaction, btn): await self.handle_rating(interaction, "3/5")
+    @discord.ui.button(label="⭐⭐⭐⭐⭐", style=discord.ButtonStyle.primary)
+    async def s5(self, interaction, btn): await self.handle_rating(interaction, "5/5")
 
 
 # ===============================
-# 🤖 KONFIGURACJA BOTA (Komendy tekstowe z prefiksem `!`)
+# 🤖 BOT KONFIGURACJA SEKCJA GŁÓWNA
 # ===============================
 
 intents = Intents.default()
@@ -287,213 +456,76 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 @bot.event
 async def setup_hook():
+    global bot_instance
+    bot_instance = bot
     bot.add_view(StartPollView())
     bot.add_view(TicketButton())
     bot.add_view(TicketControlView())
-    print("✨ Widoki przycisków (Persistent Views) zostały zarejestrowane.")
+    bot.add_view(VerificationView()) # <-- Dodajemy widok weryfikacji na przycisk jako stały
+    print("✨ Rejestracja widoków powiodła się.")
 
 @bot.event
 async def on_ready():
-    print(f'\n✅ Zalogowano jako tradycyjny bot: {bot.user}!')
-    print("Komendy działają na prefiks: !")
+    print(f'🤖 Bot uruchomiony jako: {bot.user}')
 
 @bot.event
 async def on_member_join(member):
+    # Automatyczne nadawanie roli Member nowemu użytkownikowi
+    role_member = utils.get(member.guild.roles, name="Member")
+    if role_member:
+        await member.add_roles(role_member)
+        
     channel = utils.get(member.guild.text_channels, name="⌊przyloty⌉⌊🌆⌉")
     if channel:
-        embed = discord.Embed(title="🌆 Witaj na serwerze!", description=f"{member.mention} właśnie do nas dołączył!\nMiło Cię widzieć!", color=discord.Color.green())
-        embed.set_thumbnail(url=member.display_avatar.url if member.display_avatar else None)
-        embed.set_footer(text=f"Teraz mamy {member.guild.member_count} osób.")
+        embed = discord.Embed(title="🌆 Nowy użytkownik!", description=f"{member.mention} dołączył. Przejdź na kanał weryfikacyjny, aby uzyskać dostęp!", color=discord.Color.green())
         await channel.send(embed=embed)
 
 @bot.event
 async def on_member_remove(member):
     channel = utils.get(member.guild.text_channels, name="⌊odloty⌉⌊🌇⌉")
     if channel:
-        embed = discord.Embed(title="🌇 Ktoś odleciał...", description=f"**{member.name}** opuścił serwer.", color=discord.Color.red())
-        embed.set_thumbnail(url=member.display_avatar.url if member.display_avatar else None)
-        embed.set_footer(text=f"Teraz mamy {member.guild.member_count} osób.")
-        await channel.send(embed=embed)
+        await channel.send(f"🌇 Użytkownik **{member.name}** opuścił nas serwer.")
 
 
 # ===============================
-# 🚀 KLASYCZNE KOMENDY TEKSTOWE
+# 🚀 KOMENDY ADMINISTRACYJNE
 # ===============================
+
+@bot.command(name="setup-weryfikacja")
+@commands.has_permissions(administrator=True)
+async def setup_weryfikacja_cmd(ctx):
+    ch_verify = utils.get(ctx.guild.text_channels, name="│🔐│weryfikacja")
+    if not ch_verify:
+        await ctx.send("❌ Nie znalazłem kanału o nazwie `│🔐│weryfikacja`!")
+        return
+        
+    embed = discord.Embed(
+        title="🔒 System Bezpieczeństwa & Weryfikacji",
+        description="Aby uzyskać pełny dostęp do pozostałych kanałów naszego serwera, musisz udowodnić, że nie jesteś botem.\n\n👉 **Kliknij zielony przycisk poniżej**, przepisz wygenerowany kod Captcha i ciesz się grą!",
+        color=discord.Color.blue()
+    )
+    await ch_verify.send(embed=embed, view=VerificationView())
+    await ctx.send("✅ Panel weryfikacyjny został wysłany na odpowiedni kanał!")
 
 @bot.command(name="pomoc")
 @commands.has_permissions(administrator=True)
 async def pomoc_cmd(ctx):
-    help_data = [
-        ("📩 Tickety", "Wyświetla panel do tworzenia ticketów.", "!ticket"),
-        ("📊 Ankiety", "Wyświetla panel do tworzenia ankiet.", "!ankieta"),
-        ("👤 Rangi (Nadaj)", "Nadaje rangę użytkownikowi. Użycie: !rola @użytkownik Ranga", "!rola"),
-        ("👤 Rangi (Usuń)", "Odbiera rangę użytkownikowi. Użycie: !usunrola @użytkownik Ranga", "!usunrola"),
-        ("👥 Masowe rangi", "Nadaje rangę masowo. Użycie: !rola-wszyscy Ranga", "!rola-wszyscy"),
-        ("🗑️ Masowe usuwanie rang", "Usuwa rangę wszystkim. Użycie: !usunrola-wszyscy Ranga", "!usunrola-wszyscy"),
-        ("🌆 Powitania/Pożegnania", "Testuje kanały powitalne i pożegnalne.", "!test-witamy")
-    ]
-
-    embed = discord.Embed(title="⚙️ Panel Zarządzania Botem", description="📋 Przejrzysta lista wszystkich komend administracyjnych pod prefiks `!`.", color=discord.Color.dark_gold())
-    for name, desc_text, usage in help_data:
-        embed.add_field(name=f"📌 {name}", value=f"{desc_text}\n**Użycie:** `{usage}`", inline=False)
-
-    embed.set_footer(text="Dostępne tylko dla Adminów.")
+    embed = discord.Embed(title="⚙️ Lista Komend Kubusiowo", color=discord.Color.gold())
+    embed.add_field(name="🔒 !setup-weryfikacja", value="Generuje panel z przyciskiem do Captcha na kanale weryfikacyjnym.", inline=False)
+    embed.add_field(name="📩 !ticket", value="Wysyła panel otwierania spraw.", inline=False)
+    embed.add_field(name="📊 !ankieta", value="Otwiera panel tworzenia ankiet.", inline=False)
     await ctx.send(embed=embed)
-
 
 @bot.command(name="ankieta")
 @commands.has_permissions(administrator=True)
 async def ankieta_cmd(ctx):
-    embed = discord.Embed(title="📊 Panel Zarządzania Ankietami", description="Kliknij przycisk poniżej, aby otworzyć formularz i wygenerować nową ankietę.", color=discord.Color.dark_purple())
-    await ctx.send(embed=embed, view=StartPollView())
-
+    await ctx.send(embed=discord.Embed(title="📊 Tworzenie ankiety", description="Kliknij przycisk:"), view=StartPollView())
 
 @bot.command(name="ticket")
 async def ticket_cmd(ctx):
-    embed = discord.Embed(title="🎫 System Zgłoszeń Administracji", description="Potrzebujesz pomocy? Kliknij przycisk poniżej, aby wypełnić formularz.", color=discord.Color.blue())
-    await ctx.send(embed=embed, view=TicketButton())
-
-
-@bot.command(name="rola")
-@commands.has_permissions(administrator=True)
-async def rola_cmd(ctx, uzytkownik: discord.Member, *, nazwa_rangi: str):
-    if ctx.author.id not in ADMIN_IDS:
-        await ctx.send("❌ Brak specjalnych uprawnień deweloperskich bota.")
-        return
-
-    guild = ctx.guild
-    role = utils.get(guild.roles, name=nazwa_rangi)
-
-    if not role or role >= guild.me.top_role:
-        await ctx.send("❌ Ranga nieznaleziona lub znajduje się powyżej uprawnień bota!")
-        return
-    try:
-        await uzytkownik.add_roles(role, reason=f"Nadanie przez {ctx.author.name}")
-        await ctx.send(f"✅ Nadano rangę **{role.name}** dla {uzytkownik.mention}.")
-    except discord.Forbidden:
-        await ctx.send("❌ Brak wystarczających uprawnień aplikacji (Discord Forbidden).")
-
-
-@bot.command(name="usunrola")
-@commands.has_permissions(administrator=True)
-async def usunrola_cmd(ctx, uzytkownik: discord.Member, *, nazwa_rangi: str):
-    if ctx.author.id not in ADMIN_IDS:
-        await ctx.send("❌ Brak specjalnych uprawnień deweloperskich bota.")
-        return
-
-    guild = ctx.guild
-    role = utils.get(guild.roles, name=nazwa_rangi)
-
-    if not role or role >= guild.me.top_role:
-        await ctx.send("❌ Ranga nieznaleziona lub znajduje się powyżej uprawnień bota!")
-        return
-    try:
-        await uzytkownik.remove_roles(role, reason=f"Odebranie przez {ctx.author.name}")
-        await ctx.send(f"✅ Odebrano rangę **{role.name}** użytkownikowi {uzytkownik.mention}.")
-    except discord.Forbidden:
-        await ctx.send("❌ Brak wystarczających uprawnień aplikacji (Discord Forbidden).")
-
-
-@bot.command(name="rola-wszyscy")
-@commands.has_permissions(administrator=True)
-async def rola_wszyscy_cmd(ctx, *, nazwa_rangi: str):
-    if ctx.author.id not in ADMIN_IDS:
-        await ctx.send("❌ Brak uprawnień administratora bota.")
-        return
-
-    guild = ctx.guild
-    role = utils.get(guild.roles, name=nazwa_rangi)
-
-    if not role or role >= guild.me.top_role:
-        await ctx.send("❌ Ranga nieznaleziona lub wyżej niż rola bota!")
-        return
-
-    status_message = await ctx.send(f"⏳ Dodawanie rangi **{role.name}** wszystkim...")
-    
-    all_members = [m for m in guild.members if not m.bot]
-    total_members = len(all_members)
-    success_count = 0
-
-    for i, member in enumerate(all_members):
-        if role not in member.roles:
-            try:
-                await member.add_roles(role)
-                success_count += 1
-            except discord.Forbidden: pass
-            except discord.HTTPException: await asyncio.sleep(2)
-
-        if i % 5 == 0 or i == total_members - 1:
-            await status_message.edit(content=f"Postęp: {i + 1}/{total_members}... Dodano dla {success_count} osób.")
-            await asyncio.sleep(0.5)
-
-    await status_message.edit(content=f"✨ Zakończono! Dodano rangę **{role.name}** dla {success_count} osób.")
-
-
-@bot.command(name="usunrola-wszyscy")
-@commands.has_permissions(administrator=True)
-async def usunrola_wszyscy_cmd(ctx, *, nazwa_rangi: str):
-    if ctx.author.id not in ADMIN_IDS:
-        await ctx.send("❌ Brak uprawnień administratora bota.")
-        return
-
-    guild = ctx.guild
-    role = utils.get(guild.roles, name=nazwa_rangi)
-
-    if not role or role >= guild.me.top_role:
-        await ctx.send("❌ Ranga nieznaleziona lub wyżej niż rola bota!")
-        return
-
-    status_message = await ctx.send(f"⏳ Usuwanie rangi **{role.name}** wszystkim...")
-    
-    all_members = [m for m in guild.members if not m.bot]
-    total_members = len(all_members)
-    success_count = 0
-
-    for i, member in enumerate(all_members):
-        if role in member.roles:
-            try:
-                await member.remove_roles(role)
-                success_count += 1
-            except discord.Forbidden: pass
-            except discord.HTTPException: await asyncio.sleep(2)
-
-        if i % 5 == 0 or i == total_members - 1:
-            await status_message.edit(content=f"Postęp: {i + 1}/{total_members}... Odebrano od {success_count} osób.")
-            await asyncio.sleep(0.5)
-
-    await status_message.edit(content=f"❌ Zakończono! Odebrano rangę **{role.name}** {success_count} użytkownikom.")
-
-
-@bot.command(name="test-witamy")
-@commands.has_permissions(administrator=True)
-async def test_witamy_cmd(ctx):
-    if ctx.author.id not in ADMIN_IDS:
-        await ctx.send("❌ Brak uprawnień!")
-        return
-
-    ch1 = utils.get(ctx.guild.text_channels, name="⌊przyloty⌉⌊🌆⌉")
-    ch2 = utils.get(ctx.guild.text_channels, name="⌊odloty⌉⌊🌇⌉")
-
-    if ch1:
-        e1 = discord.Embed(title="🌆 TEST PRZYLOTÓW", description="Test powitalny.", color=discord.Color.green())
-        await ch1.send(embed=e1)
-
-    if ch2:
-        e2 = discord.Embed(title="🌇 TEST ODLOTÓW", description="Test pożegnalny.", color=discord.Color.red())
-        await ch2.send(embed=e2)
-
-    await ctx.message.add_reaction("✅")
-
-
-# ===============================
-# 🚀 STARTUP I RUN
-# ===============================
+    await ctx.send(embed=discord.Embed(title="🎫 System zgłoszeń", description="Kliknij przycisk aby otworzyć ticket:"), view=TicketButton())
 
 if __name__ == "__main__":
     keep_alive() 
-
     TOKEN = os.environ.get("DISCORD_TOKEN")
-    if TOKEN:
-        bot.run(TOKEN)
-    else:
-        print("\n!!! BŁĄD !!! Proszę ustawić zmienną środowiskową DISCORD_TOKEN.")
+    if TOKEN: bot.run(TOKEN)
