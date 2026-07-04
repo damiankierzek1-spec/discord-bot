@@ -17,16 +17,121 @@ from PIL import Image, ImageDraw, ImageFont
 # ===============================
 
 ADMIN_IDS: List[int] = [652507356105539585, 550959315700154368, 590215623259193371]
-DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PWD", "Kuba123!") # Zmień hasło w zmiennych środowiskowych!
+DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PWD", "Kuba123!")
 
-# --- WEB SERVER SETUP (Flask) - Dashboard i Uptime ---
 app = Flask('')
 app.secret_key = os.environ.get("FLASK_SECRET", "super-tajny-klucz-kubusiowo")
 
-# Przechowujemy referencję do bota globalnie, aby Flask miał do niej dostęp
 bot_instance = None
 
-HTML_TEMPLATE = """
+# ===============================
+# 🎨 NOWOCZESNE SZABLONY HTML/CSS (DARK MODE + ANIMACJE)
+# ===============================
+
+SHARED_STYLE = """
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
+    
+    body {
+        font-family: 'Poppins', sans-serif;
+        background: linear-gradient(135deg, #0f0c20 0%, #15102a 50%, #06040a 100%);
+        color: #e2e8f0;
+        min-height: 100vh;
+        overflow-x: hidden;
+    }
+    
+    .glass-box {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        backdrop-filter: blur(12px);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    
+    .glass-box:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 12px 40px 0 rgba(114, 137, 218, 0.2);
+        border-color: rgba(114, 137, 218, 0.3);
+    }
+    
+    .glow-text {
+        color: #fff;
+        text-shadow: 0 0 10px rgba(114, 137, 218, 0.6), 0 0 20px rgba(114, 137, 218, 0.4);
+        animation: pulseText 3s infinite alternate;
+    }
+    
+    .btn-glow {
+        background: linear-gradient(45deg, #7289da, #5865f2);
+        color: white;
+        border: none;
+        font-weight: 600;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(88, 101, 242, 0.4);
+    }
+    
+    .btn-glow:hover {
+        background: linear-gradient(45deg, #5865f2, #4752c4);
+        transform: scale(1.02);
+        box-shadow: 0 6px 20px rgba(88, 101, 242, 0.6);
+        color: white;
+    }
+    
+    .btn-danger-glow {
+        background: linear-gradient(45deg, #ff4757, #ee5253);
+        color: white;
+        border: none;
+        font-weight: 600;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+    }
+    
+    .btn-danger-glow:hover {
+        transform: scale(1.02);
+        box-shadow: 0 6px 20px rgba(238, 82, 83, 0.5);
+        color: white;
+    }
+    
+    .custom-input, .custom-textarea {
+        background: rgba(0, 0, 0, 0.2) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        color: #fff !important;
+        border-radius: 8px !important;
+        transition: all 0.3s ease !important;
+    }
+    
+    .custom-input:focus, .custom-textarea:focus {
+        border-color: #7289da !important;
+        box-shadow: 0 0 0 3px rgba(114, 137, 218, 0.25) !important;
+    }
+    
+    .notification {
+        background: rgba(46, 213, 115, 0.15) !important;
+        border: 1px solid #2ed573 !important;
+        color: #2ed573 !important;
+        animation: fadeIn 0.5s ease;
+    }
+    
+    .notification.is-danger {
+        background: rgba(255, 71, 87, 0.15) !important;
+        border: 1px solid #ff4757 !important;
+        color: #ff4757 !important;
+    }
+
+    @keyframes pulseText {
+        0% { text-shadow: 0 0 10px rgba(114, 137, 218, 0.5); }
+        100% { text-shadow: 0 0 20px rgba(114, 137, 218, 0.8), 0 0 30px rgba(88, 101, 242, 0.6); }
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+</style>
+"""
+
+HTML_TEMPLATE = f"""
 <!DOCTYPE html>
 <html>
 <head>
@@ -34,64 +139,62 @@ HTML_TEMPLATE = """
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    {SHARED_STYLE}
 </head>
-<body class="has-background-light" style="min-height: 100vh;">
+<body>
     <section class="section">
-        <div class="container">
-            <div class="box has-text-centered">
-                <h1 class="title is-2 text-primary">🤖 Panel Zarządzania - Kubusiowo Bot</h1>
-                <p class="subtitle is-6">Zalogowany jako Administrator</p>
-                <hr>
-                {% if message %}
-                    <div class="notification is-success">{{ message }}</div>
-                {% endif %}
+        <div class="container" style="max-width: 900px;">
+            <div class="box glass-box has-text-centered mb-6 p-6">
+                <h1 class="title is-1 glow-text mb-2">🤖 KUBUSIOWO PANEL</h1>
+                <p class="subtitle is-6 has-text-grey-light">Centrum Dowodzenia Twoim Botem Discord</p>
                 
-                <div class="columns">
-                    <!-- Sekcja Statusu -->
-                    <div class="column">
-                        <div class="card">
-                            <header class="card-header"><p class="card-header-title">⚙️ Ustawienia Bota</p></header>
-                            <div class="card-content">
-                                <form method="POST" action="/update-status">
-                                    <div class="field">
-                                        <label class="label">Status bota (Aktywność):</label>
-                                        <div class="control">
-                                            <input class="input" type="text" name="status_text" placeholder="np. Ogląda serwer..." value="{{ current_status }}">
-                                        </div>
-                                    </div>
-                                    <button type="submit" class="button is-link is-fullwidth">Aktualizuj Status</button>
-                                </form>
+                {% if message %}
+                    <div class="notification p-3 mt-4">{{ message }}</div>
+                {% endif %}
+            </div>
+            
+            <div class="columns is-desktop">
+                <!-- LEWA KOLUMNA: USTAWIENIA STATUSU -->
+                <div class="column">
+                    <div class="box glass-box p-5">
+                        <h3 class="title is-4 has-text-white mb-4">⚙️ Status Aplikacji</h3>
+                        <form method="POST" action="/update-status">
+                            <div class="field mb-4">
+                                <label class="label has-text-grey-light">Tekst aktywności bota:</label>
+                                <div class="control">
+                                    <input class="input custom-input" type="text" name="status_text" placeholder="np. Pilnuje porządku..." value="{{ current_status }}">
+                                </div>
                             </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Sekcja Ogłoszeń -->
-                    <div class="column">
-                        <div class="card">
-                            <header class="card-header"><p class="card-header-title">📢 Wyślij Ogłoszenie</p></header>
-                            <div class="card-content">
-                                <form method="POST" action="/send-announcement">
-                                    <div class="field">
-                                        <label class="label">ID Kanału tekstowego:</label>
-                                        <div class="control">
-                                            <input class="input" type="text" name="channel_id" placeholder="Wklej ID kanału">
-                                        </div>
-                                    </div>
-                                    <div class="field">
-                                        <label class="label">Treść wiadomości:</label>
-                                        <div class="control">
-                                            <textarea class="textarea" name="msg_content" placeholder="Napisz coś od bota..."></textarea>
-                                        </div>
-                                    </div>
-                                    <button type="submit" class="button is-success is-fullwidth">Wyślij Wiadomość</button>
-                                </form>
-                            </div>
-                        </div>
+                            <button type="submit" class="button btn-glow is-fullwidth">Zaktualizuj Status</button>
+                        </form>
                     </div>
                 </div>
                 
-                <hr>
-                <a href="/logout" class="button is-danger">Wyloguj się</a>
+                <!-- PRAWA KOLUMNA: OGŁOSZENIA -->
+                <div class="column">
+                    <div class="box glass-box p-5">
+                        <h3 class="title is-4 has-text-white mb-4">📢 Nadaj Komunikat</h3>
+                        <form method="POST" action="/send-announcement">
+                            <div class="field mb-3">
+                                <label class="label has-text-grey-light">ID Kanału tekstowego:</label>
+                                <div class="control">
+                                    <input class="input custom-input" type="text" name="channel_id" placeholder="Wklej ID kanału docelowego">
+                                </div>
+                            </div>
+                            <div class="field mb-4">
+                                <label class="label has-text-grey-light">Treść wiadomości:</label>
+                                <div class="control">
+                                    <textarea class="textarea custom-textarea" name="msg_content" rows="3" placeholder="Wpisz treść, którą bot ma wysłać..."></textarea>
+                                </div>
+                            </div>
+                            <button type="submit" class="button btn-glow is-fullwidth">Wyślij do Discord</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="has-text-centered mt-5">
+                <a href="/logout" class="button btn-danger-glow px-5">Wyloguj Panel</a>
             </div>
         </div>
     </section>
@@ -99,33 +202,42 @@ HTML_TEMPLATE = """
 </html>
 """
 
-LOGIN_TEMPLATE = """
+LOGIN_TEMPLATE = f"""
 <!DOCTYPE html>
 <html>
 <head>
     <title>Kubusiowo - Logowanie</title>
     <meta charset="utf-8">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    {SHARED_STYLE}
 </head>
-<body class="has-background-dark style="height: 100vh; display: flex; align-items: center; justify-content: center;">
-    <div class="box style="max-width: 400px; margin: 100px auto;">
-        <h1 class="title is-4 has-text-centered">🔒 Dashboard Logowanie</h1>
-        {% if error %}
-            <div class="notification is-danger">{{ error }}</div>
-        {% endif %}
-        <form method="POST" action="/login">
-            <div class="field">
-                <label class="label">Hasło administratora:</label>
-                <div class="control">
-                    <input class="input" type="password" name="password" required>
+<body style="display: flex; align-items: center; min-height: 100vh;">
+    <div class="container">
+        <div class="box glass-box p-6 style="max-width: 420px; margin: 0 auto;">
+            <h1 class="title is-3 glow-text has-text-centered mb-5">🔒 Dostęp Admina</h1>
+            
+            {% if error %}
+                <div class="notification is-danger p-3 mb-4">{{ error }}</div>
+            {% endif %}
+            
+            <form method="POST" action="/login">
+                <div class="field mb-5">
+                    <label class="label has-text-grey-light">Wpisz Klucz Autoryzacji:</label>
+                    <div class="control">
+                        <input class="input custom-input" type="password" name="password" required placeholder="••••••••">
+                    </div>
                 </div>
-            </div>
-            <button type="submit" class="button is-primary is-fullwidth">Zaloguj</button>
-        </form>
+                <button type="submit" class="button btn-glow is-fullwidth py-4">Autoryzuj Wjazd</button>
+            </form>
+        </div>
     </div>
 </body>
 </html>
 """
+
+# ===============================
+# 🌐 TRASY FLASK (Poprawione methods)
+# ===============================
 
 @app.route('/')
 def home():
@@ -138,12 +250,12 @@ def home():
 
     return render_template_string(HTML_TEMPLATE, current_status=current_status, message=request.args.get('msg'))
 
-@app.route('/login', methods=['POST'])
+@app.route('/login', methods=['POST'])  # <-- NAPRAWIONE Z 'models' NA 'methods'
 def login():
     if request.form.get('password') == DASHBOARD_PASSWORD:
         session['logged_in'] = True
         return redirect('/')
-    return render_template_string(LOGIN_TEMPLATE, error="Nieprawidłowe hasło!")
+    return render_template_string(LOGIN_TEMPLATE, error="Błędne hasło administratora!")
 
 @app.route('/logout')
 def logout():
@@ -160,7 +272,6 @@ def update_status():
         bot_instance.loop
     )
     
-    # Logowanie zmiany na serwerze
     asyncio.run_coroutine_threadsafe(
         log_to_dashboard_channel(f"⚙️ **Dashboard**: Zmieniono status bota na: `{status_text}`"),
         bot_instance.loop
@@ -207,24 +318,18 @@ def keep_alive():
 # ===============================
 
 def generate_captcha() -> tuple:
-    # Generowanie losowego kodu tekstowego
     text = "".join(random.choices(string.ascii_uppercase + string.digits, k=5))
-    
-    # Tworzenie obrazka tła (szerokość 200, wysokość 70, kolor jasno-szary)
-    img = Image.new('RGB', (200, 70), color=(230, 230, 230))
+    img = Image.new('RGB', (200, 70), color=(25, 22, 43)) # Ciemne tło dopasowane do motywu
     d = ImageDraw.Draw(img)
     
-    # Rysowanie losowych linii zakłócających dla bezpieczeństwa
-    for _ in range(8):
+    for _ in range(12):
         x1 = random.randint(0, 200)
         y1 = random.randint(0, 70)
         x2 = random.randint(0, 200)
         y2 = random.randint(0, 70)
-        d.line([(x1, y1), (x2, y2)], fill=(random.randint(100, 200), random.randint(100, 200), random.randint(100, 200)), width=2)
+        d.line([(x1, y1), (x2, y2)], fill=(random.randint(88, 114), random.randint(101, 137), 242), width=1)
         
-    # Rysowanie tekstu (używamy domyślnego fontu bitmapowego, aby nie wymagać pliku ttf)
-    # W razie potrzeby można wgrać plik czcionki za pomocą ImageFont.truetype()
-    d.text((50, 25), text, fill=(40, 40, 40))
+    d.text((60, 25), text, fill=(255, 255, 255))
     
     buf = io.BytesIO()
     img.save(buf, format='PNG')
@@ -241,7 +346,6 @@ class CaptchaModal(discord.ui.Modal, title="🔐 Przepisz Kod z Obrazka"):
     async def on_submit(self, interaction: discord.Interaction):
         guild = interaction.guild
         member = interaction.user
-        
         log_channel = utils.get(guild.text_channels, name="│📝│logi-weryfikacji")
         
         if self.user_input.value.strip().upper() == self.correct_code:
@@ -253,19 +357,17 @@ class CaptchaModal(discord.ui.Modal, title="🔐 Przepisz Kod z Obrazka"):
             
             await interaction.response.send_message("✅ Weryfikacja pomyślna! Witamy na serwerze!", ephemeral=True)
             if log_channel:
-                await log_channel.send(f"🟢 Użytkownik {member.mention} (`{member.name}`) pomyślnie przeszedł weryfikację Captcha.")
+                await log_channel.send(f"🟢 Użytkownik {member.mention} (`{member.name}`) przeszedł weryfikację Captcha.")
         else:
             await interaction.response.send_message("❌ Niepoprawny kod! Spróbuj ponownie klikając przycisk.", ephemeral=True)
             if log_channel:
-                await log_channel.send(f"🔴 Użytkownik {member.mention} wpisał błędny kod Captcha (Wpisał: `{self.user_input.value}`, Oczekiwano: `{self.correct_code}`).")
+                await log_channel.send(f"🔴 Użytkownik {member.mention} wpisał błędny kod.")
 
 class VerificationView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
+    def __init__(self): super().__init__(timeout=None)
 
     @discord.ui.button(label="Zweryfikuj się 🔐", style=discord.ButtonStyle.success, custom_id="verify_user_btn")
     async def verify_click(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Sprawdzamy, czy użytkownik nie jest już zweryfikowany
         if utils.get(interaction.user.roles, name="ZWERYFIKOWANY"):
             await interaction.response.send_message("Jesteś już pomyślnie zweryfikowany!", ephemeral=True)
             return
@@ -273,9 +375,8 @@ class VerificationView(discord.ui.View):
         correct_code, img_buf = generate_captcha()
         file = discord.File(img_buf, filename="captcha.png")
         
-        # Wysyłamy obrazek jako wiadomość ukrytą (ephemeral)
         await interaction.response.send_message(
-            content="👇 Przepisz poniższy kod w okienku formularza, które pojawi się po kliknięciu drugiego przycisku!", 
+            content="👇 Przepisz poniższy kod w okienku formularza!", 
             file=file, 
             view=CaptchaTriggerView(correct_code), 
             ephemeral=True
@@ -292,7 +393,7 @@ class CaptchaTriggerView(discord.ui.View):
 
 
 # ===============================
-# 📊 WIDOKI UI DLA TICKETÓW I ANKIET (Bez zmian)
+# 📊 SYSTEM TICKETÓW I ANKIET 
 # ===============================
 
 class PollModal(discord.ui.Modal, title="📊 Tworzenie nowej ankiety"):
@@ -420,7 +521,6 @@ class FeedbackView(discord.ui.View):
         for c in self.children: c.disabled = True
         await interaction.response.edit_message(view=self)
         
-        # Generowanie transkrypcji z poprawką io.BytesIO
         log_content = f"TRANSKRYPCJA: {interaction.channel.name}\nOcena: {self.rating}\nTemat: {self.topic}\nOpis: {self.desc}\n\n"
         async for msg in interaction.channel.history(limit=None, oldest_first=True):
             log_content += f"[{msg.created_at.strftime('%Y-%m-%d %H:%M')}] {msg.author.name}: {msg.content}\n"
@@ -445,7 +545,7 @@ class FeedbackView(discord.ui.View):
 
 
 # ===============================
-# 🤖 BOT KONFIGURACJA SEKCJA GŁÓWNA
+# 🤖 BOT SEKCJA GŁÓWNA
 # ===============================
 
 intents = Intents.default()
@@ -461,7 +561,7 @@ async def setup_hook():
     bot.add_view(StartPollView())
     bot.add_view(TicketButton())
     bot.add_view(TicketControlView())
-    bot.add_view(VerificationView()) # <-- Dodajemy widok weryfikacji na przycisk jako stały
+    bot.add_view(VerificationView())
     print("✨ Rejestracja widoków powiodła się.")
 
 @bot.event
@@ -470,7 +570,6 @@ async def on_ready():
 
 @bot.event
 async def on_member_join(member):
-    # Automatyczne nadawanie roli Member nowemu użytkownikowi
     role_member = utils.get(member.guild.roles, name="Member")
     if role_member:
         await member.add_roles(role_member)
@@ -484,7 +583,7 @@ async def on_member_join(member):
 async def on_member_remove(member):
     channel = utils.get(member.guild.text_channels, name="⌊odloty⌉⌊🌇⌉")
     if channel:
-        await channel.send(f"🌇 Użytkownik **{member.name}** opuścił nas serwer.")
+        await channel.send(f"🌇 Użytkownik **{member.name}** opuścił nasz serwer.")
 
 
 # ===============================
