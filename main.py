@@ -35,11 +35,14 @@ def load_archive():
         except: return []
     return []
 
+def save_whole_archive(archive_data):
+    with open(ARCHIVE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(archive_data, f, ensure_ascii=False, indent=4)
+
 def save_to_archive(data):
     archive = load_archive()
     archive.append(data)
-    with open(ARCHIVE_FILE, 'w', encoding='utf-8') as f:
-        json.dump(archive, f, ensure_ascii=False, indent=4)
+    save_whole_archive(archive)
 
 # ===============================
 # 🎨 STYLE CSS DLA STRONY WWW
@@ -61,10 +64,9 @@ SHARED_STYLE = """
     .btn-danger-glow { background: linear-gradient(45deg, #ff4757, #ee5253); color: white; border: none; font-weight: 600; border-radius: 8px; transition: all 0.3s ease; }
     .btn-danger-glow:hover { transform: scale(1.02); box-shadow: 0 6px 20px rgba(238, 82, 83, 0.4); }
     .custom-input { background: rgba(0, 0, 0, 0.3) !important; border: 1px solid rgba(255, 255, 255, 0.08) !important; color: #fff !important; border-radius: 8px !important; }
-    .custom-select select { background: rgba(0, 0, 0, 0.3) !important; border: 1px solid rgba(255, 255, 255, 0.08) !important; color: #fff !important; border-radius: 8px !important; }
+    .custom-select select { background: rgba(0, 0, 0, 0.4) !important; border: 1px solid rgba(255, 255, 255, 0.08) !important; color: #fff !important; border-radius: 8px !important; width: 100%; }
     .tab-content { display: none; animation: fadeIn 0.4s ease forwards; }
     .tab-content.is-active { display: block; }
-    .notification { background: rgba(46, 213, 115, 0.12) !important; border: 1px solid rgba(46, 213, 115, 0.4) !important; color: #2ed573 !important; border-radius: 8px; }
     .ticket-badge { background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); padding: 12px 20px; border-radius: 10px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -77,14 +79,15 @@ SHARED_STYLE = """
     .chat-messages { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
     .chat-msg-row { display: flex; flex-direction: column; max-width: 75%; padding: 8px 12px; border-radius: 8px; word-break: break-word; }
     .chat-msg-row.bot { background: rgba(88, 101, 242, 0.2); border: 1px solid rgba(88, 101, 242, 0.4); align-self: flex-end; }
-    .chat-msg-row.user { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); align-self: flex-start; }
+    .chat-msg-row.user { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); align-self: flex-start; }
     .chat-msg-author { font-size: 0.75rem; font-weight: bold; color: #a0aec0; margin-bottom: 2px; }
     .chat-msg-time { font-size: 0.65rem; color: #718096; align-self: flex-end; margin-top: 4px; }
     .chat-input-area { display: flex; gap: 10px; margin-top: 15px; }
 
     /* Style bazy użytkowników i archiwum */
     .user-split { display: flex; gap: 20px; height: 650px; }
-    .user-list-side { width: 300px; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
+    .user-list-side { width: 300px; display: flex; flex-direction: column; gap: 10px; }
+    .user-scroll-area { flex: 1; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
     .user-list-item { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 6px; cursor: pointer; margin-bottom: 5px; background: rgba(255,255,255,0.01); transition: all 0.2s; }
     .user-list-item:hover, .user-list-item.active { background: rgba(88, 101, 242, 0.15); color: #fff; }
     .user-list-item img { width: 32px; height: 32px; border-radius: 50%; }
@@ -113,7 +116,7 @@ HTML_TEMPLATE = """
             <div>
                 <div class="has-text-centered mb-6">
                     <h1 class="title is-4 glow-text mb-1">🎮 KUBUSIOWO</h1>
-                    <p class="is-size-7 has-text-grey">v8.0 Master System</p>
+                    <p class="is-size-7 has-text-grey">v8.5 Ultimate System</p>
                 </div>
                 <ul class="menu-list">
                     <li><a href="#" class="is-active" onclick="switchTab(event, 'status-tab')">⚙️ Status bota</a></li>
@@ -155,7 +158,10 @@ HTML_TEMPLATE = """
                 <div class="box glass-box p-5">
                     <h2 class="title is-4 has-text-white mb-4">👥 Menedżer Użytkowników Discorda</h2>
                     <div class="user-split">
-                        <div id="user-list" class="user-list-side"><p class="has-text-grey">Ładowanie użytkowników...</p></div>
+                        <div class="user-list-side">
+                            <input type="text" id="user-search-input" class="input custom-input mb-2" placeholder="🔍 Szukaj użytkownika..." oninput="filterUsers()">
+                            <div id="user-scroll-container" class="user-scroll-area"><p class="has-text-grey">Ładowanie użytkowników...</p></div>
+                        </div>
                         <div id="user-profile" class="user-profile-side">
                             <p class="has-text-grey has-text-centered" style="margin-top: 150px;">Wybierz osobę z listy po lewej, aby zarządzać profilem.</p>
                         </div>
@@ -200,6 +206,7 @@ HTML_TEMPLATE = """
     <script>
         let currentActiveChannelId = null;
         let selectedUserId = null;
+        let allUsersData = [];
 
         function switchTab(evt, tabId) {
             document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("is-active"));
@@ -276,28 +283,52 @@ HTML_TEMPLATE = """
             }).then(() => { input.value = ''; });
         }
 
+        // --- BAZA UŻYTKOWNIKÓW Z WYSZUKIWARKĄ ---
         function fetchUsers() {
-            const listDiv = document.getElementById('user-list');
+            const container = document.getElementById('user-scroll-container');
             fetch('/api/users').then(res => res.json()).then(data => {
-                listDiv.innerHTML = '';
-                data.forEach(u => {
-                    const div = document.createElement('div');
-                    div.className = `user-list-item ${selectedUserId === u.id ? 'active' : ''}`;
-                    div.innerHTML = `<img src="${u.avatar}" alt="av"> <span>${u.name}</span>`;
-                    div.onclick = () => selectUser(u.id);
-                    listDiv.appendChild(div);
-                });
+                allUsersData = data;
+                renderUsersList(allUsersData);
             });
+        }
+
+        function renderUsersList(users) {
+            const container = document.getElementById('user-scroll-container');
+            container.innerHTML = '';
+            if(users.length === 0) { container.innerHTML = '<p class="has-text-grey is-size-7 p-2">Nie znaleziono użytkowników.</p>'; return; }
+            
+            users.forEach(u => {
+                const div = document.createElement('div');
+                div.className = `user-list-item ${selectedUserId === u.id ? 'active' : ''}`;
+                div.innerHTML = `<img src="${u.avatar}" alt="av"> <span>${u.name}</span>`;
+                div.onclick = () => selectUser(u.id);
+                container.appendChild(div);
+            });
+        }
+
+        function filterUsers() {
+            const query = document.getElementById('user-search-input').value.toLowerCase().trim();
+            const filtered = allUsersData.filter(u => u.name.toLowerCase().includes(query));
+            renderUsersList(filtered);
         }
 
         function selectUser(userId) {
             selectedUserId = userId;
+            // Aktualizacja aktywnej klasy w widoku bocznym
+            document.querySelectorAll('.user-list-item').forEach(el => el.classList.remove('active'));
+            fetchUsers(); 
+            
             const profileDiv = document.getElementById('user-profile');
             profileDiv.innerHTML = '<p class="has-text-grey">Pobieranie profilu...</p>';
+            
             fetch(`/api/users/${userId}`).then(res => res.json()).then(u => {
                 if(u.error) { profileDiv.innerHTML = `<p class='has-text-danger'>${u.error}</p>`; return; }
                 
                 let rolesHtml = u.roles.map(r => `<span class="role-tag">${r}</span>`).join('');
+                
+                // Budowanie rozwijanej listy (select) wszystkich rang serwera
+                let dropdownOptions = u.server_all_roles.map(rName => `<option value="${rName}">${rName}</option>`).join('');
+
                 profileDiv.innerHTML = `
                     <div class="has-text-centered mb-4">
                         <img src="${u.avatar}" style="width:96px; height:96px; border-radius:50%; border:2px solid #5865f2;">
@@ -311,9 +342,13 @@ HTML_TEMPLATE = """
                     <div class="mb-5">${rolesHtml || '<span class="has-text-grey-light">Brak specjalnych rang</span>'}</div>
                     
                     <div class="box" style="background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.05);">
-                        <p class="label has-text-white mb-2">⚡ Zarządzanie Rangami</p>
+                        <p class="label has-text-white mb-2">⚡ Szybkie zarządzanie rangami</p>
                         <div class="field has-addons">
-                            <div class="control is-expanded"><input id="role-input" class="input custom-input" type="text" placeholder="Nazwa roli (np. VIP)"></div>
+                            <div class="control is-expanded">
+                                <div class="select is-fullwidth custom-select">
+                                    <select id="role-dropdown">${dropdownOptions}</select>
+                                </div>
+                            </div>
                             <div class="control"><button class="button btn-glow" onclick="modifyUserRole('add')">Dodaj</button></div>
                             <div class="control"><button class="button btn-danger-glow" onclick="modifyUserRole('remove')">Zabierz</button></div>
                         </div>
@@ -323,8 +358,9 @@ HTML_TEMPLATE = """
         }
 
         function modifyUserRole(action) {
-            const roleName = document.getElementById('role-input').value.trim();
-            if(!roleName || !selectedUserId) return;
+            const dropdown = document.getElementById('role-dropdown');
+            if(!dropdown || !selectedUserId) return;
+            const roleName = dropdown.value;
             fetch('/api/users/modify-role', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -334,6 +370,7 @@ HTML_TEMPLATE = """
             });
         }
 
+        // --- OBSŁUGA ARCHIWUM I USUWANIA ---
         function fetchArchive() {
             const archiveDiv = document.getElementById('archive-list');
             fetch('/api/archive').then(res => res.json()).then(data => {
@@ -347,10 +384,20 @@ HTML_TEMPLATE = """
                             <strong style="color:#fff;">#${item.channel_name}</strong> - <span>Ocena: ${'⭐'.repeat(item.rating)} (${item.rating}/5)</span><br>
                             <small class="has-text-grey">Zamknięty przez: ${item.closed_by} | Data: ${item.closed_at}</small>
                         </div>
-                        <button class="button is-small btn-glow" onclick="viewTranscript(${index})">Zobacz transkrypcję</button>
+                        <div class="buttons">
+                            <button class="button is-small btn-glow" onclick="viewTranscript(${index})">Zobacz transkrypcję</button>
+                            <button class="button is-small btn-danger-glow" onclick="deleteTranscript(${index})">Usuń permanentnie</button>
+                        </div>
                     `;
                     archiveDiv.appendChild(div);
                 });
+            });
+        }
+
+        function deleteTranscript(index) {
+            if(!confirm("Czy na pewno chcesz bezpowrotnie usunąć tę transkrypcję z bazy strony?")) return;
+            fetch(`/api/archive/delete/${index}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
+                if(data.success) { fetchArchive(); } else { alert("Nie udało się usunąć transkrypcji."); }
             });
         }
 
@@ -358,7 +405,6 @@ HTML_TEMPLATE = """
             fetch('/api/archive').then(res => res.json()).then(data => {
                 const item = data[index];
                 const messagesDiv = document.getElementById('chat-messages');
-                // Przełączamy widok na czat i renderujemy transkrypcję archiwalną
                 switchTab({ currentTarget: document.querySelector("a[onclick*='chat-tab']") }, 'chat-tab');
                 
                 document.getElementById('chat-input-msg').disabled = true;
@@ -463,7 +509,6 @@ def chat_stream():
         except GeneratorExit: web_listeners.remove(q)
     return Response(event_stream(), mimetype="text/event-stream")
 
-# NOWE ENDPOINTY DLA BAZY UŻYTKOWNIKÓW i ARCHIWUM
 @app.route('/api/users')
 def api_users():
     if not session.get('logged_in') or not bot_instance: return jsonify([])
@@ -484,13 +529,15 @@ def api_user_details(user_id):
     for guild in bot_instance.guilds:
         m = guild.get_member(user_id)
         if m:
+            all_server_roles = [r.name for r in guild.roles if r.name != "@everyone" and not r.managed]
             return jsonify({
                 "id": str(m.id),
                 "name": m.name,
                 "avatar": str(m.display_avatar.url),
                 "created_at": m.created_at.strftime('%Y-%m-%d %H:%M'),
                 "joined_at": m.joined_at.strftime('%Y-%m-%d %H:%M') if m.joined_at else "Nieznana",
-                "roles": [r.name for r in m.roles if r.name != "@everyone"]
+                "roles": [r.name for r in m.roles if r.name != "@everyone"],
+                "server_all_roles": all_server_roles
             })
     return jsonify({"error": "Nie znaleziono użytkownika na serwerach"})
 
@@ -517,6 +564,17 @@ def api_modify_role():
 def api_get_archive():
     if not session.get('logged_in'): return jsonify([])
     return jsonify(load_archive())
+
+# TRASA DO USUWANIA Z ARCHIWUM
+@app.route('/api/archive/delete/<int:index>', methods=['DELETE'])
+def api_delete_archive(index):
+    if not session.get('logged_in'): return jsonify({"success": False, "error": "Brak autoryzacji"})
+    archive = load_archive()
+    if 0 <= index < len(archive):
+        archive.pop(index)
+        save_whole_archive(archive)
+        return jsonify({"success": True})
+    return jsonify({"success": False, "error": "Index out of bounds"})
 
 @app.route('/close-ticket-dash', methods=['POST'])
 def close_ticket_dash():
@@ -577,7 +635,6 @@ async def save_ticket_to_web_archive(channel_id: int, closing_user, rating: int,
             })
     except: pass
 
-    # Konstruowanie wpisu do bazy JSON na stronie
     archive_entry = {
         "channel_name": target_channel.name,
         "subject": data.get('subject'),
@@ -713,7 +770,7 @@ async def setup_hook():
     bot.add_view(TicketSurveyView())
 
 @bot.event
-async def on_ready(): print(f'🤖 System załadowany. Silnik WWW i Bot działają wspólnie.')
+async def on_ready(): print(f'🤖 System v8.5 gotowy. Wyszukiwarka i listy rang załadowane.')
 
 @bot.event
 async def on_message(message):
