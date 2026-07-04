@@ -40,7 +40,6 @@ SHARED_STYLE = """
         margin: 0;
     }
     
-    /* Layout z Sidebarem */
     .dashboard-container {
         display: flex;
         min-height: 100vh;
@@ -177,7 +176,8 @@ SHARED_STYLE = """
 </style>
 """
 
-HTML_TEMPLATE = f"""
+# Usunięto prefiks 'f' przed potrójnym cudzysłowem, style wstrzykujemy znacznikiem Jinja {{ SHARED_STYLE }}
+HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
@@ -185,7 +185,7 @@ HTML_TEMPLATE = f"""
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
-    {SHARED_STYLE}
+    {{ SHARED_STYLE | safe }}
 </head>
 <body>
     <div class="dashboard-container">
@@ -236,7 +236,7 @@ HTML_TEMPLATE = f"""
                 <div class="columns is-multiline">
                     <!-- Karta: Weryfikacja Captcha -->
                     <div class="column is-6">
-                        <div class="box glass-box p-5 style="height: 100%;">
+                        <div class="box glass-box p-5" style="height: 100%;">
                             <h3 class="title is-4 has-text-white mb-2">🔐 System Weryfikacji Captcha</h3>
                             <p class="has-text-grey-light is-size-6 mb-4">Wysyła oficjalny panel weryfikacyjny z przyciskiem na dedykowany kanał tekstowy serwera.</p>
                             <form method="POST" action="/trigger-command">
@@ -248,7 +248,7 @@ HTML_TEMPLATE = f"""
 
                     <!-- Karta: System Ticketów -->
                     <div class="column is-6">
-                        <div class="box glass-box p-5 style="height: 100%;">
+                        <div class="box glass-box p-5" style="height: 100%;">
                             <h3 class="title is-4 has-text-white mb-2">🎫 System Zgłoszeń (Tickety)</h3>
                             <p class="has-text-grey-light is-size-6 mb-4">Tworzy na wskazanym kanale widget umożliwiający użytkownikom otwieranie prywatnych spraw.</p>
                             <form method="POST" action="/trigger-command">
@@ -265,7 +265,7 @@ HTML_TEMPLATE = f"""
 
                     <!-- Karta: Kreator Ankiet -->
                     <div class="column is-6">
-                        <div class="box glass-box p-5 style="height: 100%;">
+                        <div class="box glass-box p-5" style="height: 100%;">
                             <h3 class="title is-4 has-text-white mb-2">📊 Panel do Tworzenia Ankiet</h3>
                             <p class="has-text-grey-light is-size-6 mb-4">Wrzuca przycisk, który pozwala uprawnionym administratorom na błyskawiczne otwieranie ankiet.</p>
                             <form method="POST" action="/trigger-command">
@@ -303,7 +303,6 @@ HTML_TEMPLATE = f"""
         </main>
     </div>
 
-    <!-- SKRYPT DO ZAKŁADEK BEZ PRZEŁADOWANIA STRONY -->
     <script>
         function switchTab(evt, tabId) {
             let i, tabcontent, tablinks;
@@ -323,14 +322,14 @@ HTML_TEMPLATE = f"""
 </html>
 """
 
-LOGIN_TEMPLATE = f"""
+LOGIN_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
     <title>Kubusiowo - Zaloguj</title>
     <meta charset="utf-8">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
-    {SHARED_STYLE}
+    {{ SHARED_STYLE | safe }}
 </head>
 <body style="display: flex; align-items: center; min-height: 100vh;">
     <div class="container">
@@ -363,20 +362,20 @@ LOGIN_TEMPLATE = f"""
 @app.route('/')
 def home():
     if not session.get('logged_in'):
-        return render_template_string(LOGIN_TEMPLATE)
+        return render_template_string(LOGIN_TEMPLATE, SHARED_STYLE=SHARED_STYLE)
     
     current_status = ""
     if bot_instance and bot_instance.activity:
         current_status = bot_instance.activity.name
 
-    return render_template_string(HTML_TEMPLATE, current_status=current_status, message=request.args.get('msg'))
+    return render_template_string(HTML_TEMPLATE, SHARED_STYLE=SHARED_STYLE, current_status=current_status, message=request.args.get('msg'))
 
 @app.route('/login', methods=['POST'])
 def login():
     if request.form.get('password') == DASHBOARD_PASSWORD:
         session['logged_in'] = True
         return redirect('/')
-    return render_template_string(LOGIN_TEMPLATE, error="Błędne hasło administratora!")
+    return render_template_string(LOGIN_TEMPLATE, SHARED_STYLE=SHARED_STYLE, error="Błędne hasło administratora!")
 
 @app.route('/logout')
 def logout():
@@ -417,7 +416,6 @@ def trigger_command():
     return redirect(f'/?msg=Komenda+{cmd_type}+wykonana+na+serwerze!')
 
 async def execute_panel_deploy(cmd_type: str, target_ch_id: str):
-    # Szukamy domyślnych kanałów po nazwie lub bierzemy podane ID
     for guild in bot_instance.guilds:
         channel = None
         if target_ch_id.isdigit():
