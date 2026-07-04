@@ -5,6 +5,7 @@ import os
 from flask import Flask
 from threading import Thread
 import asyncio
+import io
 from datetime import datetime
 from typing import List 
 
@@ -225,8 +226,11 @@ class FeedbackView(discord.ui.View):
 
         log_content += "\n--- KONIEC TRANSKRYPCJI ---"
 
-        file_data = log_content.encode('utf-8') 
+        # Poprawka strumienia bajtów przez io.BytesIO
+        file_bytes = log_content.encode('utf-8')
+        file_data = io.BytesIO(file_bytes) 
         log_file = discord.File(file_data, filename=f"log-{channel.name}.txt")
+        
         log_channel = utils.get(guild.text_channels, name="logi-ticketow")
 
         if log_channel:
@@ -272,19 +276,17 @@ class FeedbackView(discord.ui.View):
 
 
 # ===============================
-# 🤖 KONFIGURACJA BOTA (Klasyczne komendy na prefiks `!`)
+# 🤖 KONFIGURACJA BOTA (Komendy tekstowe z prefiksem `!`)
 # ===============================
 
 intents = Intents.default()
 intents.message_content = True 
 intents.members = True          
 
-# Zmieniamy dziedziczenie i bazę na commands.Bot
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 @bot.event
 async def setup_hook():
-    # Dzięki temu stare przyciski w wysłanych już wiadomościach nie "umrą" po restarcie bota
     bot.add_view(StartPollView())
     bot.add_view(TicketButton())
     bot.add_view(TicketControlView())
