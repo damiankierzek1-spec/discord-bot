@@ -7,7 +7,7 @@ from flask import Flask, render_template_string, request, redirect, session, jso
 from threading import Thread
 import asyncio
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List
 import json
 
@@ -63,6 +63,8 @@ SHARED_STYLE = """
     .btn-glow:hover { background: linear-gradient(45deg, #5865f2, #4752c4); transform: scale(1.02); box-shadow: 0 6px 20px rgba(88, 101, 242, 0.5); color: white; }
     .btn-danger-glow { background: linear-gradient(45deg, #ff4757, #ee5253); color: white; border: none; font-weight: 600; border-radius: 8px; transition: all 0.3s ease; }
     .btn-danger-glow:hover { transform: scale(1.02); box-shadow: 0 6px 20px rgba(238, 82, 83, 0.4); }
+    .btn-warning-glow { background: linear-gradient(45deg, #ffa502, #ff7f50); color: white; border: none; font-weight: 600; border-radius: 8px; transition: all 0.3s ease; }
+    .btn-warning-glow:hover { transform: scale(1.02); box-shadow: 0 6px 20px rgba(255, 165, 2, 0.4); }
     .custom-input { background: rgba(0, 0, 0, 0.3) !important; border: 1px solid rgba(255, 255, 255, 0.08) !important; color: #fff !important; border-radius: 8px !important; }
     .custom-select select { background: rgba(0, 0, 0, 0.4) !important; border: 1px solid rgba(255, 255, 255, 0.08) !important; color: #fff !important; border-radius: 8px !important; width: 100%; }
     .tab-content { display: none; animation: fadeIn 0.4s ease forwards; }
@@ -85,7 +87,7 @@ SHARED_STYLE = """
     .chat-input-area { display: flex; gap: 10px; margin-top: 15px; }
 
     /* Style bazy użytkowników i archiwum */
-    .user-split { display: flex; gap: 20px; height: 650px; }
+    .user-split { display: flex; gap: 20px; height: 680px; }
     .user-list-side { width: 300px; display: flex; flex-direction: column; gap: 10px; }
     .user-scroll-area { flex: 1; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
     .user-list-item { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 6px; cursor: pointer; margin-bottom: 5px; background: rgba(255,255,255,0.01); transition: all 0.2s; }
@@ -116,7 +118,7 @@ HTML_TEMPLATE = """
             <div>
                 <div class="has-text-centered mb-6">
                     <h1 class="title is-4 glow-text mb-1">🎮 KUBUSIOWO</h1>
-                    <p class="is-size-7 has-text-grey">v8.5 Ultimate System</p>
+                    <p class="is-size-7 has-text-grey">v8.6 Moderation System</p>
                 </div>
                 <ul class="menu-list">
                     <li><a href="#" class="is-active" onclick="switchTab(event, 'status-tab')">⚙️ Status bota</a></li>
@@ -314,9 +316,6 @@ HTML_TEMPLATE = """
 
         function selectUser(userId) {
             selectedUserId = userId;
-            // Aktualizacja aktywnej klasy w widoku bocznym
-            document.querySelectorAll('.user-list-item').forEach(el => el.classList.remove('active'));
-            fetchUsers(); 
             
             const profileDiv = document.getElementById('user-profile');
             profileDiv.innerHTML = '<p class="has-text-grey">Pobieranie profilu...</p>';
@@ -325,32 +324,49 @@ HTML_TEMPLATE = """
                 if(u.error) { profileDiv.innerHTML = `<p class='has-text-danger'>${u.error}</p>`; return; }
                 
                 let rolesHtml = u.roles.map(r => `<span class="role-tag">${r}</span>`).join('');
-                
-                // Budowanie rozwijanej listy (select) wszystkich rang serwera
                 let dropdownOptions = u.server_all_roles.map(rName => `<option value="${rName}">${rName}</option>`).join('');
 
                 profileDiv.innerHTML = `
-                    <div class="has-text-centered mb-4">
-                        <img src="${u.avatar}" style="width:96px; height:96px; border-radius:50%; border:2px solid #5865f2;">
-                        <h3 class="title is-4 has-text-white mt-2">${u.name}</h3>
-                        <p class="is-size-7 has-text-grey">ID: ${u.id}</p>
+                    <div class="columns is-mobile is-vcentered mb-2">
+                        <div class="column is-narrow">
+                            <img src="${u.avatar}" style="width:72px; height:72px; border-radius:50%; border:2px solid #5865f2;">
+                        </div>
+                        <div class="column">
+                            <h3 class="title is-4 has-text-white mb-0">${u.name}</h3>
+                            <p class="is-size-7 has-text-grey">ID: ${u.id}</p>
+                        </div>
                     </div>
-                    <hr style="background-color:rgba(255,255,255,0.08);">
-                    <p class="mb-2">📅 **Konto utworzone:** ${u.created_at}</p>
-                    <p class="mb-4">📥 **Dołączył na serwer:** ${u.joined_at}</p>
-                    <p class="label has-text-grey mb-1">Posiadane Rangi:</p>
-                    <div class="mb-5">${rolesHtml || '<span class="has-text-grey-light">Brak specjalnych rang</span>'}</div>
+                    <div class="is-size-7 mb-3">
+                        <p>📅 Konto: ${u.created_at}</p>
+                        <p>📥 Serwer: ${u.joined_at}</p>
+                    </div>
+                    <p class="label has-text-grey mb-1 is-size-7">Posiadane Rangi:</p>
+                    <div class="mb-3">${rolesHtml || '<span class="has-text-grey-light is-size-7">Brak rang</span>'}</div>
                     
-                    <div class="box" style="background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.05);">
-                        <p class="label has-text-white mb-2">⚡ Szybkie zarządzanie rangami</p>
+                    <!-- Zarządzanie Rangami -->
+                    <div class="box mb-3 p-3" style="background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.05);">
+                        <p class="is-size-7 has-text-white mb-2 font-weight-bold">⚡ Zarządzanie rangami</p>
                         <div class="field has-addons">
                             <div class="control is-expanded">
-                                <div class="select is-fullwidth custom-select">
+                                <div class="select is-small is-fullwidth custom-select">
                                     <select id="role-dropdown">${dropdownOptions}</select>
                                 </div>
                             </div>
-                            <div class="control"><button class="button btn-glow" onclick="modifyUserRole('add')">Dodaj</button></div>
-                            <div class="control"><button class="button btn-danger-glow" onclick="modifyUserRole('remove')">Zabierz</button></div>
+                            <div class="control"><button class="button is-small btn-glow" onclick="modifyUserRole('add')">Dodaj</button></div>
+                            <div class="control"><button class="button is-small btn-danger-glow" onclick="modifyUserRole('remove')">Zabierz</button></div>
+                        </div>
+                    </div>
+
+                    <!-- Panel Moderacji (Kar) -->
+                    <div class="box p-3" style="background:rgba(255, 67, 87, 0.04); border:1px solid rgba(255, 67, 87, 0.15);">
+                        <p class="is-size-7 has-text-danger font-weight-bold mb-2">🛡️ Panel Moderacji (System Kar)</p>
+                        <div class="field mb-2">
+                            <input id="mod-reason" type="text" class="input is-small custom-input" placeholder="Powód kary...">
+                        </div>
+                        <div class="buttons">
+                            <button class="button is-small btn-warning-glow" onclick="moderateUser('timeout')">Wycisz (1h)</button>
+                            <button class="button is-small btn-danger-glow" onclick="moderateUser('kick')">Wyrzuć (Kick)</button>
+                            <button class="button is-small btn-danger-glow" style="background:crimson;" onclick="moderateUser('ban')">Zbanuj (Ban)</button>
                         </div>
                     </div>
                 `;
@@ -367,6 +383,29 @@ HTML_TEMPLATE = """
                 body: JSON.stringify({ user_id: selectedUserId, action: action, role_name: roleName })
             }).then(res => res.json()).then(data => {
                 if(data.success) { selectUser(selectedUserId); } else { alert("Błąd: " + data.error); }
+            });
+        }
+
+        // NOWA FUNKCJA STRONY: MODERACJA (KARY)
+        function moderateUser(action) {
+            const reasonInput = document.getElementById('mod-reason');
+            if(!reasonInput || !selectedUserId) return;
+            const reason = reasonInput.value.trim() || "Brak podanego powodu przez panel WWW.";
+
+            if(!confirm(`Czy na pewno chcesz wykonać akcję [${action.toUpperCase()}] na tym użytkowniku?`)) return;
+
+            fetch('/api/users/moderate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ user_id: selectedUserId, action: action, reason: reason })
+            }).then(res => res.json()).then(data => {
+                if(data.success) {
+                    alert(`Pomyślnie wykonano akcję: ${action}`);
+                    fetchUsers();
+                    document.getElementById('user-profile').innerHTML = '<p class="has-text-grey has-text-centered" style="margin-top: 150px;">Wybierz osobę z listy po lewej, aby zarządzać profilem.</p>';
+                } else {
+                    alert("Błąd moderacji: " + data.error);
+                }
             });
         }
 
@@ -560,12 +599,38 @@ def api_modify_role():
             return jsonify({"success": True})
     return jsonify({"success": False, "error": "Nie znaleziono użytkownika lub roli o tej nazwie"})
 
+# --- NOWA TRASA: WYKONYWANIE KAR MODERACYJNYCH ---
+@app.route('/api/users/moderate', methods=['POST'])
+def api_moderate_user():
+    if not session.get('logged_in') or not bot_instance: return jsonify({"success": False, "error": "Brak autoryzacji"})
+    data = request.json
+    user_id = int(data.get('user_id'))
+    action = data.get('action')
+    reason = data.get('reason', "Brak podanego powodu.")
+
+    for guild in bot_instance.guilds:
+        m = guild.get_member(user_id)
+        if m:
+            try:
+                if action == 'timeout':
+                    # Domyślny timeout na 1 godzinę
+                    duration = timedelta(hours=1)
+                    asyncio.run_coroutine_threadsafe(m.timeout(duration, reason=reason), bot_instance.loop)
+                elif action == 'kick':
+                    asyncio.run_coroutine_threadsafe(m.kick(reason=reason), bot_instance.loop)
+                elif action == 'ban':
+                    asyncio.run_coroutine_threadsafe(guild.ban(m, reason=reason, delete_message_days=0), bot_instance.loop)
+                return jsonify({"success": True})
+            except Exception as e:
+                return jsonify({"success": False, "error": f"Brak uprawnień bota lub błąd Discord API: {str(e)}"})
+                
+    return jsonify({"success": False, "error": "Nie znaleziono użytkownika na serwerze."})
+
 @app.route('/api/archive')
 def api_get_archive():
     if not session.get('logged_in'): return jsonify([])
     return jsonify(load_archive())
 
-# TRASA DO USUWANIA Z ARCHIWUM
 @app.route('/api/archive/delete/<int:index>', methods=['DELETE'])
 def api_delete_archive(index):
     if not session.get('logged_in'): return jsonify({"success": False, "error": "Brak autoryzacji"})
@@ -612,7 +677,7 @@ def keep_alive():
     t.start()
 
 # ===============================
-# 📊 NOWY SYSTEM LOKALNEGO ARCHIWIZOWANIA WWW
+# 📊 ARCHIWIZOWANIE WWW
 # ===============================
 
 async def save_ticket_to_web_archive(channel_id: int, closing_user, rating: int, guild):
@@ -770,7 +835,7 @@ async def setup_hook():
     bot.add_view(TicketSurveyView())
 
 @bot.event
-async def on_ready(): print(f'🤖 System v8.5 gotowy. Wyszukiwarka i listy rang załadowane.')
+async def on_ready(): print(f'🤖 System v8.6 gotowy. Zaawansowane kary i moderacja załadowane.')
 
 @bot.event
 async def on_message(message):
