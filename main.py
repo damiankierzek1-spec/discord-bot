@@ -46,16 +46,16 @@ def save_to_archive(data):
 
 SHARED_STYLE = """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght=300;400;500;600;700&display=swap');
     
     :root {
-        --bg-gradient: radial-gradient(circle at 50% 50%, #0f0c1b 0%, #05020a 100%);
+        --bg-gradient: radial-gradient(circle at 50% 50%, #080512 0%, #020105 100%);
         --primary-glow: #5865f2;
         --accent-neon: #00f2fe;
         --danger-neon: #ff007f;
         --warning-neon: #ffae00;
-        --panel-bg: rgba(13, 10, 25, 0.45);
-        --border-glow: rgba(88, 101, 242, 0.15);
+        --panel-bg: rgba(10, 7, 22, 0.55);
+        --border-glow: rgba(88, 101, 242, 0.2);
     }
 
     body { 
@@ -68,21 +68,32 @@ SHARED_STYLE = """
         position: relative;
     }
 
-    /* Żywe, animowane tło w tle strony */
+    /* Klasyczny Canvas na pełny ekran dla gwiazd */
+    #space-canvas {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 0;
+        pointer-events: none;
+    }
+
+    /* Żywe, animowane tło świetlne w tle strony pod gwiazdami */
     .animated-bg {
         position: fixed;
         top: 0; left: 0; width: 100vw; height: 100vh;
         z-index: -1;
-        background: radial-gradient(circle at 20% 30%, rgba(88, 101, 242, 0.12) 0%, transparent 40%),
-                    radial-gradient(circle at 80% 70%, rgba(0, 242, 254, 0.08) 0%, transparent 45%),
-                    radial-gradient(circle at 40% 80%, rgba(255, 0, 127, 0.06) 0%, transparent 35%);
-        filter: blur(60px);
-        animation: pulseBackground 15s ease-in-out infinite alternate;
+        background: radial-gradient(circle at 15% 25%, rgba(88, 101, 242, 0.15) 0%, transparent 45%),
+                    radial-gradient(circle at 85% 75%, rgba(0, 242, 254, 0.1) 0%, transparent 50%),
+                    radial-gradient(circle at 50% 50%, rgba(255, 0, 127, 0.05) 0%, transparent 40%);
+        filter: blur(80px);
+        animation: pulseBackground 20s ease-in-out infinite alternate;
     }
 
     @keyframes pulseBackground {
-        0% { transform: scale(1) rotate(0deg); }
-        100% { transform: scale(1.15) rotate(3deg); }
+        0% { transform: scale(1) translate(0, 0); }
+        100% { transform: scale(1.1) translate(10px, -10px); }
     }
 
     .dashboard-container { display: flex; min-height: 100vh; position: relative; z-index: 1; }
@@ -90,17 +101,18 @@ SHARED_STYLE = """
     /* Pasek boczny z efektem frosted-glass i neonową linią */
     .sidebar { 
         width: 280px; 
-        background: rgba(10, 7, 20, 0.65); 
+        background: rgba(8, 5, 18, 0.75); 
         border-right: 1px solid var(--border-glow); 
-        backdrop-filter: blur(25px); 
+        backdrop-filter: blur(30px); 
         padding: 2.5rem 1.5rem; 
         display: flex; 
         flex-direction: column; 
         justify-content: space-between;
-        box-shadow: 5px 0 30px rgba(0,0,0,0.5);
+        box-shadow: 8px 0 35px rgba(0,0,0,0.6);
+        z-index: 2;
     }
 
-    .main-content { flex: 1; padding: 3rem; overflow-y: auto; height: 100vh; }
+    .main-content { flex: 1; padding: 3rem; overflow-y: auto; height: 100vh; position: relative; z-index: 1; }
 
     /* Animowane Menu Linki */
     .menu-list a { 
@@ -111,23 +123,24 @@ SHARED_STYLE = """
         display: flex; 
         align-items: center; 
         gap: 14px; 
-        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
+        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
         font-weight: 500;
         border: 1px solid transparent;
     }
     .menu-list a:hover {
         color: #fff;
-        background: rgba(255, 255, 255, 0.03);
-        transform: translateX(5px);
-        border-color: rgba(255, 255, 255, 0.05);
+        background: rgba(255, 255, 255, 0.04);
+        transform: translateX(6px);
+        border-color: rgba(88, 101, 242, 0.2);
+        box-shadow: 0 0 15px rgba(88, 101, 242, 0.1);
     }
     .menu-list a.is-active { 
-        background: linear-gradient(90deg, rgba(88, 101, 242, 0.2) 0%, rgba(88, 101, 242, 0.02) 100%); 
+        background: linear-gradient(90deg, rgba(88, 101, 242, 0.25) 0%, rgba(88, 101, 242, 0.02) 100%); 
         color: #fff; 
-        box-shadow: inset 3px 0 0 #5865f2;
         border-left: 4px solid var(--primary-glow);
         padding-left: 14px;
         text-shadow: 0 0 15px rgba(88, 101, 242, 0.6);
+        border-color: rgba(88, 101, 242, 0.3);
     }
 
     /* Płynnie podświetlane kontenery (Karty) */
@@ -135,14 +148,14 @@ SHARED_STYLE = """
         background: var(--panel-bg); 
         border: 1px solid var(--border-glow); 
         border-radius: 20px; 
-        backdrop-filter: blur(15px); 
-        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
-        transition: all 0.4s ease;
+        backdrop-filter: blur(20px); 
+        box-shadow: 0 20px 45px rgba(0, 0, 0, 0.5);
+        transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
     }
     .glass-box:hover {
-        border-color: rgba(88, 101, 242, 0.3);
-        box-shadow: 0 20px 45px rgba(88, 101, 242, 0.1);
-        transform: translateY(-2px);
+        border-color: rgba(88, 101, 242, 0.4);
+        box-shadow: 0 25px 55px rgba(88, 101, 242, 0.15);
+        transform: translateY(-3px);
     }
 
     .glow-text { 
@@ -163,7 +176,6 @@ SHARED_STYLE = """
         box-shadow: 0 6px 25px rgba(88, 101, 242, 0.7); 
         color: white; 
     }
-    .btn-glow:active { transform: translateY(1px); }
 
     .btn-danger-glow { 
         background: linear-gradient(135deg, #ff4757, #ff0055); 
@@ -180,7 +192,7 @@ SHARED_STYLE = """
     .btn-warning-glow:hover { transform: translateY(-2px); box-shadow: 0 6px 25px rgba(255, 165, 2, 0.6); }
 
     .custom-input, .custom-select select { 
-        background: rgba(5, 3, 10, 0.5) !important; 
+        background: rgba(5, 3, 10, 0.6) !important; 
         border: 1px solid rgba(255, 255, 255, 0.08) !important; 
         color: #fff !important; 
         border-radius: 10px !important; 
@@ -199,7 +211,7 @@ SHARED_STYLE = """
     }
 
     @keyframes cyberSlideIn { 
-        from { opacity: 0; transform: translateY(20px) scale(0.98); filter: blur(4px); } 
+        from { opacity: 0; transform: translateY(25px) scale(0.97); filter: blur(6px); } 
         to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); } 
     }
 
@@ -216,7 +228,7 @@ SHARED_STYLE = """
         100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 255, 163, 0); }
     }
 
-    /* Przebudowany interfejs Live Chatu i użytkowników */
+    /* Interfejs Live Chatu */
     .chat-container { display: flex; height: 650px; gap: 25px; }
     .chat-channels-list { width: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
     
@@ -235,11 +247,10 @@ SHARED_STYLE = """
     .chat-window { flex: 1; display: flex; flex-direction: column; height: 100%; }
     .chat-messages { 
         flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; 
-        background: rgba(0,0,0,0.25); border-radius: 16px; border: 1px solid rgba(255,255,255,0.04);
+        background: rgba(0,0,0,0.3); border-radius: 16px; border: 1px solid rgba(255,255,255,0.04);
         scroll-behavior: smooth;
     }
     
-    /* Animacje wiadomości na czacie */
     .chat-msg-row { 
         display: flex; flex-direction: column; max-width: 70%; padding: 10px 15px; 
         border-radius: 14px; animation: msgFadeIn 0.3s ease-out forwards;
@@ -251,7 +262,6 @@ SHARED_STYLE = """
     .chat-msg-author { font-size: 0.8rem; font-weight: 600; color: #a0aec0; margin-bottom: 4px; }
     .chat-msg-time { font-size: 0.65rem; color: #5a6578; align-self: flex-end; margin-top: 6px; }
 
-    /* Widok podziału użytkowników */
     .user-split { display: flex; gap: 25px; height: 700px; }
     .user-list-side { width: 320px; display: flex; flex-direction: column; gap: 12px; }
     .user-scroll-area { flex: 1; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.04); }
@@ -281,9 +291,6 @@ SHARED_STYLE = """
         display: flex; justify-content: space-between; align-items: center;
         transition: all 0.3s ease;
     }
-    .ticket-badge:hover, .archive-item:hover {
-        background: rgba(255, 255, 255, 0.02); border-color: rgba(255, 255, 255, 0.1);
-    }
 </style>
 """
 
@@ -301,8 +308,9 @@ HTML_TEMPLATE = """
     {{ SHARED_STYLE | safe }}
 </head>
 <body>
-    <!-- Falujące Elementy Neonowe w Tle -->
+    <!-- Warstwy Animowanego Tła -->
     <div class="animated-bg"></div>
+    <canvas id="space-canvas"></canvas>
 
     <div class="dashboard-container">
         <aside class="sidebar">
@@ -315,22 +323,22 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
                 <ul class="menu-list">
-                    <li><a href="#" class="is-active" onclick="switchTab(event, 'status-tab')">⚙️ Status bota</a></li>
-                    <li><a href="#" onclick="switchTab(event, 'management-tab')">🛠️ Stwórz Kanał</a></li>
-                    <li><a href="#" onclick="switchTab(event, 'users-tab')">👥 Baza Użytkowników</a></li>
-                    <li><a href="#" onclick="switchTab(event, 'tickets-tab')">🎫 Aktywne Tickety</a></li>
-                    <li><a href="#" onclick="switchTab(event, 'chat-tab')">💬 Czat Ticketów</a></li>
-                    <li><a href="#" onclick="switchTab(event, 'archive-tab')">📜 Archiwum Ticketów</a></li>
+                    <li><a href="#" class="is-active" onmouseenter="playHoverSound()" onclick="switchTab(event, 'status-tab')">⚙️ Status bota</a></li>
+                    <li><a href="#" onmouseenter="playHoverSound()" onclick="switchTab(event, 'management-tab')">🛠️ Stwórz Kanał</a></li>
+                    <li><a href="#" onmouseenter="playHoverSound()" onclick="switchTab(event, 'users-tab')">👥 Baza Użytkowników</a></li>
+                    <li><a href="#" onmouseenter="playHoverSound()" onclick="switchTab(event, 'tickets-tab')">🎫 Aktywne Tickety</a></li>
+                    <li><a href="#" onmouseenter="playHoverSound()" onclick="switchTab(event, 'chat-tab')">💬 Czat Ticketów</a></li>
+                    <li><a href="#" onmouseenter="playHoverSound()" onclick="switchTab(event, 'archive-tab')">📜 Archiwum Ticketów</a></li>
                 </ul>
             </div>
-            <div><a href="/logout" class="button btn-danger-glow is-fullwidth py-4">Wyloguj system</a></div>
+            <div><a href="/logout" class="button btn-danger-glow is-fullwidth py-4" onmouseenter="playHoverSound()" onclick="playClickSound()">Wyloguj system</a></div>
         </aside>
 
         <main class="main-content">
             <div id="status-tab" class="tab-content is-active">
                 <div class="box glass-box p-6" style="max-width: 600px;">
                     <h2 class="title is-3 has-text-white mb-4">Ustawienia Aktywności Bota</h2>
-                    <form method="POST" action="/update-status">
+                    <form method="POST" action="/update-status" onclick="playClickSound()">
                         <div class="field mb-5">
                             <label class="label has-text-grey-light is-size-7 mb-2">Treść statusu gry (Playing...)</label>
                             <input class="input custom-input py-4" type="text" name="status_text" value="{{ current_status }}">
@@ -343,7 +351,7 @@ HTML_TEMPLATE = """
             <div id="management-tab" class="tab-content">
                 <div class="box glass-box p-5" style="max-width: 500px;">
                     <h3 class="title is-4 has-text-white mb-4">📁 Kreator Kanałów Serwerowych</h3>
-                    <form method="POST" action="/create-channel">
+                    <form method="POST" action="/create-channel" onclick="playClickSound()">
                         <div class="field mb-3"><input class="input custom-input" type="text" name="channel_name" required placeholder="Nazwa nowego kanału..."></div>
                         <div class="field mb-5"><div class="select is-fullwidth custom-select"><select name="channel_type"><option value="text">Tekstowy</option><option value="voice">Głosowy</option></select></div></div>
                         <button type="submit" class="button btn-glow is-fullwidth py-4">Wygeneruj kanał</button>
@@ -401,11 +409,120 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
+        // ============================================
+        // 🔊 DEKLARACJA KONTROLERA DŹWIĘKÓW (AUDIO MATRIX)
+        // ============================================
+        const hoverAudio = new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav');
+        const clickAudio = new Audio('https://assets.mixkit.co/active_storage/sfx/2753/2753-84.wav');
+        hoverAudio.volume = 0.15;
+        clickAudio.volume = 0.25;
+
+        function playHoverSound() {
+            hoverAudio.currentTime = 0;
+            hoverAudio.play().catch(() => {});
+        }
+
+        function playClickSound() {
+            clickAudio.currentTime = 0;
+            clickAudio.play().catch(() => {});
+        }
+
+        // ============================================
+        // 🌌 SILNIK RENDEROWANIA PROJEKCJI GWIAZD (CANVAS ENGINE)
+        // ============================================
+        const canvas = document.getElementById('space-canvas');
+        const ctx = canvas.getContext('2d');
+
+        let stars = [];
+        let meteors = [];
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Generowanie stałego pyłu kosmicznego
+        for (let i = 0; i < 120; i++) {
+            stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                size: Math.random() * 1.8,
+                alpha: Math.random(),
+                speed: 0.2 + Math.random() * 0.4
+            });
+        }
+
+        function spawnMeteor() {
+            if (meteors.length < 3 && Math.random() < 0.015) {
+                meteors.push({
+                    x: Math.random() * canvas.width * 0.8,
+                    y: -20,
+                    length: 40 + Math.random() * 80,
+                    speedX: 4 + Math.random() * 6,
+                    speedY: 4 + Math.random() * 6,
+                    alpha: 1
+                });
+            }
+        }
+
+        function drawSpace() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Rysowanie i ruch gwiazd (dryfowanie w dół)
+            stars.forEach(star => {
+                ctx.fillStyle = `rgba(255, 255, 255, ${star.alpha})`;
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                ctx.fill();
+
+                star.y += star.speed;
+                if (star.y > canvas.height) {
+                    star.y = 0;
+                    star.x = Math.random() * canvas.width;
+                }
+            });
+
+            // Spadające gwiazdy / Meteory
+            spawnMeteor();
+            meteors.forEach((m, idx) => {
+                ctx.strokeStyle = `aria-linear-gradient`;
+                let gradient = ctx.createLinearGradient(m.x, m.y, m.x + m.length, m.y + m.length);
+                gradient.addColorStop(0, `rgba(0, 242, 254, ${m.alpha})`);
+                gradient.addColorStop(0.5, `rgba(88, 101, 242, ${m.alpha * 0.5})`);
+                gradient.addColorStop(1, 'rgba(0,0,0,0)');
+
+                ctx.strokeStyle = gradient;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(m.x, m.y);
+                ctx.lineTo(m.x - m.length, m.y - m.length);
+                ctx.stroke();
+
+                // Aktualizacja pozycji
+                m.x += m.speedX;
+                m.y += m.speedY;
+                m.alpha -= 0.012;
+
+                if (m.alpha <= 0 || m.x > canvas.width || m.y > canvas.height) {
+                    meteors.splice(idx, 1);
+                }
+            });
+
+            requestAnimationFrame(drawSpace);
+        }
+        drawSpace();
+
+        // ============================================
+        // 🛠️ FUNKCJONALNOŚĆ PANELU ZAKŁADEK
+        // ============================================
         let currentActiveChannelId = null;
         let selectedUserId = null;
         let allUsersData = [];
 
         function switchTab(evt, tabId) {
+            playClickSound();
             document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("is-active"));
             document.querySelectorAll(".menu-list a").forEach(el => el.classList.remove("is-active"));
             document.getElementById(tabId).classList.add("is-active");
@@ -425,7 +542,7 @@ HTML_TEMPLATE = """
                     const div = document.createElement('div');
                     div.className = 'ticket-badge';
                     div.innerHTML = `<div><strong style="color:#fff; font-size:1.1rem;">#${t.name}</strong></div>
-                    <form method="POST" action="/close-ticket-dash" style="margin:0;"><input type="hidden" name="channel_id" value="${t.id}"><button type="submit" class="button is-small btn-danger-glow px-5">Wymuś Zamknięcie</button></form>`;
+                    <form method="POST" action="/close-ticket-dash" style="margin:0;"><input type="hidden" name="channel_id" value="${t.id}"><button type="submit" class="button is-small btn-danger-glow px-5" onclick="playClickSound()">Wymuś Zamknięcie</button></form>`;
                     listDiv.appendChild(div);
                 });
             });
@@ -440,7 +557,8 @@ HTML_TEMPLATE = """
                     const div = document.createElement('div');
                     div.className = `chat-channel-item ${currentActiveChannelId === t.id ? 'active' : ''}`;
                     div.innerText = `#${t.name}`;
-                    div.onclick = () => selectChatChannel(t.id);
+                    div.onmouseenter = playHoverSound;
+                    div.onclick = () => { playClickSound(); selectChatChannel(t.id); };
                     channelsDiv.appendChild(div);
                 });
             });
@@ -448,8 +566,6 @@ HTML_TEMPLATE = """
 
         function selectChatChannel(channelId) {
             currentActiveChannelId = channelId;
-            document.querySelectorAll('.chat-channel-item').forEach(el => el.classList.remove('active'));
-            fetchChatChannels();
             document.getElementById('chat-input-msg').disabled = false;
             document.getElementById('chat-send-btn').disabled = false;
             const messagesDiv = document.getElementById('chat-messages');
@@ -470,6 +586,7 @@ HTML_TEMPLATE = """
         }
 
         function sendWebMessage() {
+            playClickSound();
             const input = document.getElementById('chat-input-msg');
             const content = input.value.trim();
             if(!content || !currentActiveChannelId) return;
@@ -496,7 +613,8 @@ HTML_TEMPLATE = """
                 const div = document.createElement('div');
                 div.className = `user-list-item ${selectedUserId === u.id ? 'active' : ''}`;
                 div.innerHTML = `<img src="${u.avatar}" alt="avatar"> <span>${u.name}</span>`;
-                div.onclick = () => selectUser(u.id);
+                div.onmouseenter = playHoverSound;
+                div.onclick = () => { playClickSound(); selectUser(u.id); };
                 container.appendChild(div);
             });
         }
@@ -529,11 +647,11 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
                     <div class="is-size-7 mb-4 p-3" style="background:rgba(0,0,0,0.15); border-radius:10px;">
-                        <p>📅 Rejestracja konta: <span class="has-text-white">${u.created_at}</span></p>
-                        <p>📥 Dołączenie na serwer: <span class="has-text-white">${u.joined_at}</span></p>
+                        <p>📅 Rejestracja: <span class="has-text-white">${u.created_at}</span></p>
+                        <p>📥 Serwer: <span class="has-text-white">${u.joined_at}</span></p>
                     </div>
                     <p class="label has-text-grey-light mb-2 is-size-7">AKTYWNE RANGI:</p>
-                    <div class="mb-4">${rolesHtml || '<span class="has-text-grey-light is-size-7">Brak przypisanych uprawnień ról</span>'}</div>
+                    <div class="mb-4">${rolesHtml || '<span class="has-text-grey-light is-size-7">Brak uprawnień</span>'}</div>
                     
                     <div class="box mb-4 p-4" style="background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.05); border-radius:12px;">
                         <p class="is-size-7 has-text-white mb-2 font-weight-bold">⚡ Przydzielanie / Usuwanie Rang</p>
@@ -549,14 +667,14 @@ HTML_TEMPLATE = """
                     </div>
 
                     <div class="box p-4" style="background:rgba(255, 0, 127, 0.03); border:1px solid rgba(255, 0, 127, 0.15); border-radius:12px;">
-                        <p class="is-size-7 has-text-danger font-weight-bold mb-2">🛡️ SYSTEM KONTROLI DYSCYPLINARNEJ (KARY)</p>
+                        <p class="is-size-7 has-text-danger font-weight-bold mb-2">🛡️ KARY I RESTRYKCJE</p>
                         <div class="field mb-3">
-                            <input id="mod-reason" type="text" class="input is-small custom-input" placeholder="Wpisz oficjalny powód kary...">
+                            <input id="mod-reason" type="text" class="input is-small custom-input" placeholder="Powód kary...">
                         </div>
                         <div class="buttons">
                             <button class="button is-small btn-warning-glow" onclick="moderateUser('timeout')">Wycisz (1h)</button>
-                            <button class="button is-small btn-danger-glow" onclick="moderateUser('kick')">Wyrzuć (Kick)</button>
-                            <button class="button is-small btn-danger-glow" style="background:linear-gradient(135deg, crimson, #ff0000);" onclick="moderateUser('ban')">Zbanuj (Ban)</button>
+                            <button class="button is-small btn-danger-glow" onclick="moderateUser('kick')">Wyrzuć</button>
+                            <button class="button is-small btn-danger-glow" style="background:linear-gradient(135deg, crimson, #ff0000);" onclick="moderateUser('ban')">Zbanuj</button>
                         </div>
                     </div>
                 `;
@@ -564,6 +682,7 @@ HTML_TEMPLATE = """
         }
 
         function modifyUserRole(action) {
+            playClickSound();
             const dropdown = document.getElementById('role-dropdown');
             if(!dropdown || !selectedUserId) return;
             const roleName = dropdown.value;
@@ -572,11 +691,12 @@ HTML_TEMPLATE = """
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ user_id: selectedUserId, action: action, role_name: roleName })
             }).then(res => res.json()).then(data => {
-                if(data.success) { selectUser(selectedUserId); } else { alert("Błąd: " + data.error); }
+                if(data.success) { selectUser(selectedUserId); }
             });
         }
 
         function moderateUser(action) {
+            playClickSound();
             const reasonInput = document.getElementById('mod-reason');
             if(!reasonInput || !selectedUserId) return;
             const reason = reasonInput.value.trim() || "Akcja z panelu WWW Cyber-Glow.";
@@ -589,11 +709,8 @@ HTML_TEMPLATE = """
                 body: JSON.stringify({ user_id: selectedUserId, action: action, reason: reason })
             }).then(res => res.json()).then(data => {
                 if(data.success) {
-                    alert(`Wykonano pomyślnie.`);
                     fetchUsers();
                     document.getElementById('user-profile').innerHTML = '<p class="has-text-grey has-text-centered" style="margin-top: 200px;">Wybierz osobę z bazy danych, aby otworzyć profil cyber-karty.</p>';
-                } else {
-                    alert("Błąd: " + data.error);
                 }
             });
         }
@@ -612,7 +729,7 @@ HTML_TEMPLATE = """
                             <small class="has-text-grey-light">Zamknął: ${item.closed_by} | ${item.closed_at}</small>
                         </div>
                         <div class="buttons">
-                            <button class="button is-small btn-glow" onclick="viewTranscript(${index})">Wgląd transkrypcji</button>
+                            <button class="button is-small btn-glow" onclick="viewTranscript(${index})">Wgląd</button>
                             <button class="button is-small btn-danger-glow" onclick="deleteTranscript(${index})">Usuń</button>
                         </div>
                     `;
@@ -622,6 +739,7 @@ HTML_TEMPLATE = """
         }
 
         function deleteTranscript(index) {
+            playClickSound();
             if(!confirm("Usunąć trwale plik transkrypcji?")) return;
             fetch(`/api/archive/delete/${index}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
                 if(data.success) { fetchArchive(); }
@@ -629,6 +747,7 @@ HTML_TEMPLATE = """
         }
 
         function viewTranscript(index) {
+            playClickSound();
             fetch('/api/archive').then(res => res.json()).then(data => {
                 const item = data[index];
                 const messagesDiv = document.getElementById('chat-messages');
@@ -657,7 +776,6 @@ HTML_TEMPLATE = """
 
         setInterval(() => { 
             if (document.getElementById('tickets-tab').classList.contains('is-active')) fetchTickets(); 
-            if (document.getElementById('chat-tab').classList.contains('is-active') && !document.getElementById('chat-input-msg').disabled) fetchChatChannels();
         }, 6000);
     </script>
 </body>
@@ -977,7 +1095,7 @@ async def setup_hook():
     bot.add_view(TicketSurveyView())
 
 @bot.event
-async def on_ready(): print(f'🤖 System Cyber-Glow gotowy i w pełni animowany.')
+async def on_ready(): print(f'🤖 System Cyber-Glow z gwiezdnym tłem i audio Matrix jest gotowy.')
 
 @bot.event
 async def on_message(message):
