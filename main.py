@@ -1,11 +1,13 @@
 import discord
 from discord.ext import commands
-from discord import Intents, utils, Embed
+from discord import Intents, utils, Embed, File
 from discord.ui import Button, View, Modal, TextInput
 import os
 from flask import Flask, render_template_string, request, redirect, session, jsonify
 from threading import Thread
 import asyncio
+import io
+from datetime import datetime
 from typing import List
 
 # ===============================
@@ -15,13 +17,17 @@ from typing import List
 ADMIN_IDS: List[int] = [652507356105539585, 550959315700154368, 590215623259193371]
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PWD", "Kuba123!")
 
-# ID kanału, na który bot ma wysyłać logi z ticketów (zmień na swoje ID kanału)
+# 📌 TUTAJ WPISZ ID SWOJEGO KANAŁU LOGÓW TICKETÓW:
 LOGS_CHANNEL_ID = 123456789012345678  
 
 app = Flask('')
 app.secret_key = os.environ.get("FLASK_SECRET", "super-tajny-klucz-kubusiowo")
 
 bot_instance = None
+
+# Słownik do przechowywania danych o ticketach w pamięci podręcznej (kto otworzył, temat, opis, obsługujący)
+# Ułatwia to zachowanie danych pomiędzy otwarciem zgłoszenia a jego zamknięciem i ankietą
+ticket_data_cache = {}
 
 # ===============================
 # 🎨 STYLE CSS DLA STRONY WWW
@@ -71,7 +77,7 @@ HTML_TEMPLATE = """
             <div>
                 <div class="has-text-centered mb-6">
                     <h1 class="title is-4 glow-text mb-1">🎮 KUBUSIOWO</h1>
-                    <p class="is-size-7 has-text-grey">v5.0 Complete Fix</p>
+                    <p class="is-size-7 has-text-grey">v5.5 Full Logs & Transcripts</p>
                 </div>
                 <ul class="menu-list">
                     <li><a href="#" class="is-active" onclick="switchTab(event, 'status-tab')">⚙️ Status bota</a></li>
@@ -244,19 +250,79 @@ async def assign_role_async(user_id: int, role_name: str):
         role = utils.get(guild.roles, name=role_name)
         if member and role: await member.add_roles(role)
 
-async def send_to_log_channel(embed: Embed):
-    if bot_instance and LOGS_CHANNEL_ID:
-        logs_channel = bot_instance.get_channel(LOGS_CHANNEL_ID)
-        if logs_channel:
-            await logs_channel.send(embed=embed)
-
 def keep_alive():
     t = Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080))))
     t.daemon = True
     t.start()
 
 # ===============================
-# 📊 INTERAKTYWNA ANKIETA I LOGOWANIE SYSTEMOWE
+# 📊 GENEROWANIE TRANSKRYPCJI I LOGÓW (ZGODNIE ZE SCREENEM)
+# ===============================
+
+async def generate_and_send_ticket_logs(channel, interaction, rating: int):
+    """Generuje transkrypcję czatu i wysyła ją na wskazany kanał logów wraz z embedem"""
+    if not LOGS_CHANNEL_ID or not bot_instance:
+        return
+
+    logs_channel = bot_instance.get_channel(LOGS_CHANNEL_ID)
+    if not logs_channel:
+        print(f"❌ [BŁĄD] Nie odnaleziono kanału logów o ID {LOGS_CHANNEL_ID}!")
+        return
+
+    # Pobieranie danych z podręcznego cache
+    ch_id = channel.id
+    data = ticket_data_cache.get(ch_id, {
+        "subject": "Brak danych",
+        "description": "Brak danych",
+        "creator_mention": "@Nieznany",
+        "claimer_mention": ".zbyszek" # Domyślny fallback ze screena
+    })
+
+    # 1. Pobieranie historii wiadomości do pliku tekstowego transkrypcji
+    transcript_content = []
+    async for msg in channel.history(limit=500, oldest_first=True):
+        timestamp = msg.created_at.strftime('%Y-%m-%d %H:%M:%S')
+        transcript_content.append(f"[{timestamp}] {msg.author.name}: {msg.content}")
+    
+    full_transcript_text = "\n".join(transcript_content)
+    
+    # Tworzenie pliku w pamięci RAM (In-Memory File)
+    file_stream = io.BytesIO(full_transcript_text.encode('utf-8'))
+    discord_file = File(file_stream, filename=f"log-{channel.name}.txt")
+
+    # 2. Tworzenie nagłówka tekstowego bota (Zgodnie z górną sekcją na Twoim screenie)
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    header_text = (
+        f"--- TRANSKRYPCJA TICKETU: {channel.name} ---\n"
+        f"Wygenerowano: {now_str}\n"
+        f"Obsługujący (Claim): {data.get('claimer_mention')}\n"
+        f"Zamknięty przez: {interaction.user.name}\n"
+        f"Ocena użytkownika: {'⭐' * rating} ({rating}/5)\n"
+        f"Temat zgłoszenia: {data.get('subject')}\n"
+    )
+
+    # 3. Budowanie pięknego graficznego Embedu (Dolna sekcja z Twojego screena)
+    log_embed = Embed(color=0xff4757) # Czerwono-pomarańczowy pasek boczny
+    log_embed.title = "🔒 Archiwum Zgłoszenia"
+    log_embed.description = f"Kanał **{channel.name}** został pomyślnie zamknięty."
+    
+    log_embed.add_field(name="🛠️ Obsługujący admin:", value=data.get('claimer_mention'), inline=True)
+    log_embed.add_field(name="🔒 Zamknął:", value=interaction.user.mention, inline=True)
+    log_embed.add_field(name="⭐ Ocena pracy:", value=f"{'⭐' * rating} ({rating}/5)", inline=True)
+    
+    log_embed.add_field(name="📌 Wpisany Temat:", value=f"```\n{data.get('subject')}\n```", inline=False)
+    log_embed.add_field(name="📝 Wpisany Opis:", value=f"```\n{data.get('description')}\n```", inline=False)
+    log_embed.set_footer(text=f"Dzisiaj o {datetime.now().strftime('%H:%M')}")
+
+    # Wysyłanie wszystkiego na kanał tekstowy logów
+    await logs_channel.send(content=header_text, file=discord_file, embed=log_embed)
+    
+    # Czyszczenie pamięci cache dla usuniętego kanału
+    if ch_id in ticket_data_cache:
+        del ticket_data_cache[ch_id]
+
+# ===============================
+# 📊 INTERAKTYWNA ANKIETA SATYSFAKCJI
 # ===============================
 
 class TicketSurveyView(View):
@@ -265,13 +331,9 @@ class TicketSurveyView(View):
 
     async def handle_rating(self, interaction: discord.Interaction, rating: int):
         await interaction.response.send_message(f"⭐ Dziękujemy za ocenę: **{rating}/5**! Sekcja zostanie usunięta.", ephemeral=False)
-        print(f"📊 [FEEDBACK] Ticket {interaction.channel.name} zamknięty z oceną: {rating}/5 przez {interaction.user}")
         
-        log_embed = Embed(title="🔒 Ticket Zamknięty & Oceniony", color=0xff4757)
-        log_embed.add_field(name="Kanał", value=f"`{interaction.channel.name}`", inline=True)
-        log_embed.add_field(name="Oceniający", value=interaction.user.mention, inline=True)
-        log_embed.add_field(name="Ocena końcowa", value=f"**{rating}/5 ⭐**", inline=False)
-        await send_to_log_channel(log_embed)
+        # Generowanie logów (Transkrypcja txt + Embed) i wysyłanie na kanał logów przed skasowaniem!
+        await generate_and_send_ticket_logs(interaction.channel, interaction, rating)
 
         for child in self.children:
             child.disabled = True
@@ -343,6 +405,14 @@ class TicketCreateModal(Modal):
         }
         ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
         
+        # Zapisujemy dane do tymczasowej pamięci cache bota
+        ticket_data_cache[ticket_channel.id] = {
+            "subject": self.subject.value,
+            "description": self.description.value,
+            "creator_mention": member.mention,
+            "claimer_mention": ".zbyszek"  # Automatyczny/domyślny tekst pomocnika, dopóki ktoś nie przejmie ticketu
+        }
+
         embed = Embed(title="🎫 Nowe Zgłoszenie Otwarte!", color=0x5865f2)
         embed.add_field(name="Użytkownik", value=member.mention, inline=True)
         embed.add_field(name="Temat główny", value=f"**{self.subject.value}**", inline=False)
@@ -350,12 +420,6 @@ class TicketCreateModal(Modal):
         
         await ticket_channel.send(embed=embed, view=TicketActionView())
         await interaction.response.send_message(f"✅ Otwarto ticket: {ticket_channel.mention}", ephemeral=True)
-
-        log_embed = Embed(title="📥 Otwarto Nowy Ticket", color=0x2ed573)
-        log_embed.add_field(name="Kanał", value=ticket_channel.mention, inline=True)
-        log_embed.add_field(name="Założyciel", value=member.mention, inline=True)
-        log_embed.add_field(name="Temat", value=self.subject.value, inline=False)
-        await send_to_log_channel(log_embed)
 
 class TicketActionView(View):
     def __init__(self): super().__init__(timeout=None)
@@ -385,7 +449,6 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 async def setup_hook():
     global bot_instance
     bot_instance = bot
-    # UWAGA: Dodajemy tylko widoki View. Modali nie rejestruje się w setup_hook!
     bot.add_view(TicketSetupView())
     bot.add_view(TicketActionView())
     bot.add_view(TicketSurveyView())
@@ -395,26 +458,22 @@ async def on_ready(): print(f'🤖 Bot online: {bot.user}')
 
 @bot.command(name="pomoc")
 async def pomoc(ctx):
-    """Rozbudowana komenda pomoc z jasną listą wszystkich komend bota"""
     embed = Embed(
         title="📚 Menu Pomocy - Lista Wszystkich Komend",
         description="Poniżej znajdziesz spis poleceń bota wraz z ich opisami i uprawnieniami.",
         color=0x5865f2
     )
-    # Sekcja dla zwykłych użytkowników
     embed.add_field(
         name="👥 Komendy Użytkownika",
         value="• `!pomoc` - Wyświetla to pełne okno pomocy z listą poleceń.",
         inline=False
     )
-    # Sekcja dla Administratorów
     embed.add_field(
         name="🛠️ Komendy Administratora",
         value="• `!ticket` - Generuje stały interaktywny panel zgłoszeń z przyciskiem.\n"
               "• *(Wymagane uprawnienie: Administrator, automatycznie usuwa wiadomość wywołującą)*",
         inline=False
     )
-    # Sekcja Panelu WWW
     embed.add_field(
         name="💻 Zdalny Panel WWW (Dashboard)",
         value="Dostępny pod adresem IP bota z hasłem konfiguracyjnym:\n"
