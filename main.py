@@ -3,12 +3,13 @@ from discord.ext import commands
 from discord import Intents, utils, Embed, File
 from discord.ui import Button, View, Modal, TextInput
 import os
-from flask import Flask, render_template_string, request, redirect, session, jsonify
+from flask import Flask, render_template_string, request, redirect, session, jsonify, Response
 from threading import Thread
 import asyncio
 import io
 from datetime import datetime
 from typing import List
+import json
 
 # ===============================
 # 🚨 KONFIGURACJA GLOBALNA I ZMIENNE ŚRODOWISKOWE 🚨
@@ -27,6 +28,9 @@ bot_instance = None
 
 # Słownik do przechowywania danych o ticketach w pamięci podręcznej
 ticket_data_cache = {}
+
+# Lista subskrybentów webowych (do przesyłania wiadomości w czasie rzeczywistym)
+web_listeners = []
 
 # ===============================
 # 🎨 STYLE CSS DLA STRONY WWW
@@ -48,12 +52,27 @@ SHARED_STYLE = """
     .btn-glow:hover { background: linear-gradient(45deg, #5865f2, #4752c4); transform: scale(1.02); box-shadow: 0 6px 20px rgba(88, 101, 242, 0.5); color: white; }
     .btn-danger-glow { background: linear-gradient(45deg, #ff4757, #ee5253); color: white; border: none; font-weight: 600; border-radius: 8px; transition: all 0.3s ease; }
     .btn-danger-glow:hover { transform: scale(1.02); box-shadow: 0 6px 20px rgba(238, 82, 83, 0.4); }
-    .custom-input, .custom-select select { background: rgba(0, 0, 0, 0.3) !important; border: 1px solid rgba(255, 255, 255, 0.08) !important; color: #fff !important; border-radius: 8px !important; }
+    .custom-input { background: rgba(0, 0, 0, 0.3) !important; border: 1px solid rgba(255, 255, 255, 0.08) !important; color: #fff !important; border-radius: 8px !important; }
+    .custom-select select { background: rgba(0, 0, 0, 0.3) !important; border: 1px solid rgba(255, 255, 255, 0.08) !important; color: #fff !important; border-radius: 8px !important; }
     .tab-content { display: none; animation: fadeIn 0.4s ease forwards; }
     .tab-content.is-active { display: block; }
     .notification { background: rgba(46, 213, 115, 0.12) !important; border: 1px solid rgba(46, 213, 115, 0.4) !important; color: #2ed573 !important; border-radius: 8px; }
     .ticket-badge { background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); padding: 12px 20px; border-radius: 10px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Nowe style dla okna czatu */
+    .chat-container { display: flex; height: 600px; gap: 20px; }
+    .chat-channels-list { width: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+    .chat-channel-item { padding: 12px; border-radius: 8px; cursor: pointer; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); transition: all 0.2s; }
+    .chat-channel-item:hover, .chat-channel-item.active { background: rgba(88, 101, 242, 0.15); border-color: #5865f2; color: #fff; }
+    .chat-window { flex: 1; display: flex; flex-direction: column; height: 100%; position: relative; }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
+    .chat-msg-row { display: flex; flex-direction: column; max-width: 75%; padding: 8px 12px; border-radius: 8px; word-break: break-word; }
+    .chat-msg-row.bot { background: rgba(88, 101, 242, 0.2); border: 1px solid rgba(88, 101, 242, 0.4); align-self: flex-end; }
+    .chat-msg-row.user { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); align-self: flex-start; }
+    .chat-msg-author { font-size: 0.75rem; font-weight: bold; color: #a0aec0; margin-bottom: 2px; }
+    .chat-msg-time { font-size: 0.65rem; color: #718096; align-self: flex-end; margin-top: 4px; }
+    .chat-input-area { display: flex; gap: 10px; margin-top: 15px; }
 </style>
 """
 
@@ -76,12 +95,13 @@ HTML_TEMPLATE = """
             <div>
                 <div class="has-text-centered mb-6">
                     <h1 class="title is-4 glow-text mb-1">🎮 KUBUSIOWO</h1>
-                    <p class="is-size-7 has-text-grey">tung tung tung sahur</p>
+                    <p class="is-size-7 has-text-grey">v7.0 Live Chat Engine</p>
                 </div>
                 <ul class="menu-list">
                     <li><a href="#" class="is-active" onclick="switchTab(event, 'status-tab')">⚙️ Status bota</a></li>
                     <li><a href="#" onclick="switchTab(event, 'management-tab')">🛠️ Zarządzanie</a></li>
                     <li><a href="#" onclick="switchTab(event, 'tickets-tab')">🎫 Aktywne Tickety</a></li>
+                    <li><a href="#" onclick="switchTab(event, 'chat-tab')">💬 Czat Ticketów</a></li>
                 </ul>
             </div>
             <div><a href="/logout" class="button btn-danger-glow is-fullwidth">Wyloguj się</a></div>
@@ -133,16 +153,39 @@ HTML_TEMPLATE = """
                     <div id="tickets-list"><p class="has-text-grey">Ładowanie...</p></div>
                 </div>
             </div>
+
+            <div id="chat-tab" class="tab-content">
+                <div class="box glass-box p-5">
+                    <h2 class="title is-4 has-text-white mb-4">💬 Live Chat - Pisz jako BOT</h2>
+                    <div class="chat-container">
+                        <div id="chat-channels" class="chat-channels-list">
+                            <p class="has-text-grey is-size-7">Ładowanie kanałów...</p>
+                        </div>
+                        <div class="chat-window">
+                            <div id="chat-messages" class="chat-messages">
+                                <p class="has-text-grey style='margin:auto;'">Wybierz ticket z listy po lewej stronie, aby rozpocząć rozmowę.</p>
+                            </div>
+                            <div class="chat-input-area">
+                                <input type="text" id="chat-input-msg" class="input custom-input" placeholder="Wpisz wiadomość jako Bot..." disabled onkeydown="if(event.key==='Enter') sendWebMessage()">
+                                <button id="chat-send-btn" class="button btn-glow" disabled onclick="sendWebMessage()">Wyślij</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
     <script>
+        let currentActiveChannelId = null;
+
         function switchTab(evt, tabId) {
             document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("is-active"));
             document.querySelectorAll(".menu-list a").forEach(el => el.classList.remove("is-active"));
             document.getElementById(tabId).classList.add("is-active");
             evt.currentTarget.classList.add("is-active");
             if (tabId === 'tickets-tab') fetchTickets();
+            if (tabId === 'chat-tab') fetchChatChannels();
         }
 
         function fetchTickets() {
@@ -156,12 +199,92 @@ HTML_TEMPLATE = """
                         const div = document.createElement('div');
                         div.className = 'ticket-badge';
                         div.innerHTML = `<div><strong style="color:#fff;">#${t.name}</strong></div>
-                        <form method="POST" action="/close-ticket-dash" style="margin:0;"><input type="hidden" name="channel_id" value="${t.id}"><button type="submit" class="button is-small btn-danger-glow px-4">Usuń</button></form>`;
+                        <form method="POST" action="/close-ticket-dash" style="margin:0;"><input type="hidden" name="channel_id" value="${t.id}"><button type="submit" class="button is-small btn-danger-glow px-4">Usuń z WWW</button></form>`;
                         listDiv.appendChild(div);
                     });
                 });
         }
-        setInterval(() => { if (document.getElementById('tickets-tab').classList.contains('is-active')) fetchTickets(); }, 8000);
+
+        function fetchChatChannels() {
+            const channelsDiv = document.getElementById('chat-channels');
+            fetch('/api/tickets')
+                .then(res => res.json())
+                .then(data => {
+                    channelsDiv.innerHTML = '';
+                    if(data.length === 0){ channelsDiv.innerHTML = '<p class="has-text-grey is-size-7">Brak otwartych ticketów.</p>'; return; }
+                    data.forEach(t => {
+                        const div = document.createElement('div');
+                        div.className = `chat-channel-item ${currentActiveChannelId === t.id ? 'active' : ''}`;
+                        div.innerText = `#${t.name}`;
+                        div.onclick = () => selectChatChannel(t.id);
+                        channelsDiv.appendChild(div);
+                    });
+                });
+        }
+
+        function selectChatChannel(channelId) {
+            currentActiveChannelId = channelId;
+            document.querySelectorAll('.chat-channel-item').forEach(el => el.classList.remove('active'));
+            fetchChatChannels();
+
+            document.getElementById('chat-input-msg').disabled = false;
+            document.getElementById('chat-send-btn').disabled = false;
+
+            const messagesDiv = document.getElementById('chat-messages');
+            messagesDiv.innerHTML = '<p class="has-text-grey">Pobieranie historii rozmawiania...</p>';
+
+            fetch(`/api/chat/history/${channelId}`)
+                .then(res => res.json())
+                .then(messages => {
+                    messagesDiv.innerHTML = '';
+                    messages.forEach(msg => appendMessageDOM(msg));
+                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                });
+        }
+
+        function appendMessageDOM(msg) {
+            const messagesDiv = document.getElementById('chat-messages');
+            const row = document.createElement('div');
+            const isBot = msg.is_bot ? 'bot' : 'user';
+            row.className = `chat-msg-row ${isBot}`;
+            row.innerHTML = `<div class="chat-msg-author">${msg.author}</div>
+                             <div>${msg.content}</div>
+                             <div class="chat-msg-time">${msg.time}</div>`;
+            messagesDiv.appendChild(row);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function sendWebMessage() {
+            const input = document.getElementById('chat-input-msg');
+            const content = input.value.trim();
+            if(!content || !currentActiveChannelId) return;
+
+            fetch('/api/chat/send', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ channel_id: currentActiveChannelId, message: content })
+            }).then(res => res.json()).then(data => {
+                if(data.success) {
+                    input.value = '';
+                } else {
+                    alert("Nie udało się posłać wiadomości: " + data.error);
+                }
+            });
+        }
+
+        // Podłączenie Server-Sent Events do nasłuchiwania na żywo nowych wiadomości bez odświeżania!
+        const eventSource = new EventSource('/api/chat/stream');
+        eventSource.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            if(currentActiveChannelId && data.channel_id === currentActiveChannelId.toString()) {
+                appendMessageDOM(data);
+            }
+        };
+
+        setInterval(() => { 
+            if (document.getElementById('tickets-tab').classList.contains('is-active')) fetchTickets(); 
+            if (document.getElementById('chat-tab').classList.contains('is-active')) fetchChatChannels();
+        }, 8000);
     </script>
 </body>
 </html>
@@ -206,6 +329,64 @@ def api_tickets():
     if not session.get('logged_in') or not bot_instance: return jsonify([])
     return jsonify([{"id": str(c.id), "name": c.name} for g in bot_instance.guilds for c in g.text_channels if c.name.startswith("ticket-")])
 
+# Pobieranie historii wiadomości z wybranego ticketu
+@app.route('/api/chat/history/<int:channel_id>')
+def api_chat_history(channel_id):
+    if not session.get('logged_in') or not bot_instance: return jsonify([])
+    
+    channel = bot_instance.get_channel(channel_id)
+    if not channel: return jsonify([])
+
+    # Praca w wątku asynchronicznym bota w celu zebrania starych wiadomości
+    future = asyncio.run_coroutine_threadsafe(channel.history(limit=50, oldest_first=False).flatten(), bot_instance.loop)
+    try:
+        messages = future.result()
+        messages.reverse() # Sortowanie od najstarszych do najnowszych
+        
+        chat_logs = []
+        for m in messages:
+            chat_logs.append({
+                "author": m.author.name,
+                "content": m.content,
+                "is_bot": m.author.bot,
+                "time": m.created_at.strftime('%H:%M')
+            })
+        return jsonify(chat_logs)
+    except Exception as e:
+        return jsonify([{"author": "SYSTEM EL ENGINE", "content": f"Błąd zbierania logów: {e}", "is_bot": True, "time": "00:00"}])
+
+# Wysyłanie wiadomości na kanał Discorda z formularza WWW
+@app.route('/api/chat/send', methods=['POST'])
+def api_chat_send():
+    if not session.get('logged_in') or not bot_instance: return jsonify({"success": False, "error": "Brak sesji"})
+    
+    data = request.json
+    channel_id = int(data.get('channel_id'))
+    text = data.get('message')
+
+    channel = bot_instance.get_channel(channel_id)
+    if not channel: return jsonify({"success": False, "error": "Nie ma takiego kanału"})
+
+    # Zlecenie botu wysłania wiadomości tekstowej
+    asyncio.run_coroutine_threadsafe(channel.send(text), bot_instance.loop)
+    return jsonify({"success": True})
+
+# Kanał przesyłania danych w strumieniu SSE (Server Sent Events) dla powiadomień błyskawicznych
+@app.route('/api/chat/stream')
+def chat_stream():
+    def event_stream():
+        q = asyncio.Queue()
+        web_listeners.append(q)
+        try:
+            while True:
+                # Flask działa synchronicznie, pobieramy bezpiecznie pętlą zdarzeń z wątku bota
+                future = asyncio.run_coroutine_threadsafe(q.get(), bot_instance.loop)
+                msg_data = future.result()
+                yield f"data: {json.dumps(msg_data)}\n\n"
+        except GeneratorExit:
+            web_listeners.remove(q)
+    return Response(event_stream(), mimetype="text/event-stream")
+
 @app.route('/close-ticket-dash', methods=['POST'])
 def close_ticket_dash():
     if not session.get('logged_in') or not bot_instance: return redirect('/')
@@ -234,7 +415,7 @@ def assign_role():
 async def trigger_ticket_close_flow(channel_id: int):
     channel = bot_instance.get_channel(channel_id) or await bot_instance.fetch_channel(channel_id)
     if channel:
-        await channel.send("⚠️ Oceń pomoc.")
+        await channel.send("⚠️ Zdalne żądanie zamknięcia z panelu WWW. Wywołuję ankietę satysfakcji.")
         await initiate_survey(channel)
 
 async def create_channel_async(name: str, channel_type: str):
@@ -259,24 +440,13 @@ def keep_alive():
 # ===============================
 
 async def generate_and_send_ticket_logs(channel_id: int, closing_user, rating: int, guild):
-    """Generuje pełną transkrypcję kanału tekstowego i przesyła spakowane dane na kanał logów"""
-    if not LOGS_CHANNEL_ID or not bot_instance:
-        print("❌ [LOGI BŁĄD] Brak ustawionego ID kanału logów lub bot_instance.")
-        return
+    if not LOGS_CHANNEL_ID or not bot_instance: return
 
-    # Pobieranie obiektów kanałów z gwarancją kontekstu serwera
     logs_channel = guild.get_channel(LOGS_CHANNEL_ID) or bot_instance.get_channel(LOGS_CHANNEL_ID)
     target_channel = guild.get_channel(channel_id)
     
-    if not logs_channel:
-        print(f"❌ [LOGI BŁĄD] Nie odnaleziono kanału tekstowego logów o ID: {LOGS_CHANNEL_ID}")
-        return
-        
-    if not target_channel:
-        print(f"❌ [LOGI BŁĄD] Nie udało się odnaleźć obiektu zamykanego kanału ticketu.")
-        return
+    if not logs_channel or not target_channel: return
 
-    # Wyciąganie metadanych ticketu z pamięci podręcznej podręcznej bota
     data = ticket_data_cache.get(channel_id, {
         "subject": "Nie zdefiniowano (Starszy ticket)",
         "description": "Nie zdefiniowano (Starszy ticket)",
@@ -284,23 +454,18 @@ async def generate_and_send_ticket_logs(channel_id: int, closing_user, rating: i
         "claimer_mention": "@Brak"
     })
 
-    # Ściąganie pełnej historii rozmowy na kanale ticketowym
     transcript_content = []
     try:
         async for msg in target_channel.history(limit=600, oldest_first=True):
             timestamp = msg.created_at.strftime('%Y-%m-%d %H:%M:%S')
             transcript_content.append(f"[{timestamp}] {msg.author.name}: {msg.content}")
     except Exception as e:
-        print(f"⚠️ Problem przy pobieraniu historii wiadomości (Zostanie pominięta): {e}")
         transcript_content.append("[Błąd pobierania historii wiadomości]")
 
     full_transcript_text = "\n".join(transcript_content)
-    
-    # Konwersja tekstu na obiekt pliku binarnego w pamięci podręcznej RAM
     file_stream = io.BytesIO(full_transcript_text.encode('utf-8'))
     discord_file = File(file_stream, filename=f"log-{target_channel.name}.txt")
 
-    # Nagłówek tekstowy przed embedem
     now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     header_text = (
         f"```\n"
@@ -312,10 +477,9 @@ async def generate_and_send_ticket_logs(channel_id: int, closing_user, rating: i
         f"```"
     )
 
-    # Budowanie profesjonalnego i estetycznego embedu logów
     log_embed = Embed(color=0xff4757) 
     log_embed.title = "🔒 Archiwum Zgłoszenia"
-    log_embed.description = f"Kanał **{target_channel.name}** został pomyślnie zamknięty."
+    log_embed.description = f"Kanał **{target_channel.name}** został pomyślnie zamknięty i zarchiwizowany."
     
     log_embed.add_field(name="🛠️ Obsługujący admin:", value=data.get('claimer_mention'), inline=True)
     log_embed.add_field(name="🔒 Zamknął zgłoszenie:", value=closing_user.mention, inline=True)
@@ -325,63 +489,43 @@ async def generate_and_send_ticket_logs(channel_id: int, closing_user, rating: i
     log_embed.add_field(name="📝 Treść opisu zgłoszenia:", value=f"```\n{data.get('description')}\n```", inline=False)
     log_embed.set_footer(text=f"Dzisiaj o {datetime.now().strftime('%H:%M')}")
 
-    # Wysłanie paczki danych na wyznaczony kanał logów
     await logs_channel.send(content=header_text, file=discord_file, embed=log_embed)
-    print(f"✅ [SUKCES LOGOWANIA] Logi dla kanału {target_channel.name} zostały pomyślnie wysłane!")
     
-    # Wyczyszczenie pamięci cache bota
     if channel_id in ticket_data_cache:
         del ticket_data_cache[channel_id]
 
 # ===============================
-# 📊 INTERAKTYWNA ANKIETA SATYSFAKCJI (ZABEZPIECZONA)
+# 📊 INTERAKTYWNA ANKIETA SATYSFAKCJI
 # ===============================
 
 class TicketSurveyView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
+    def __init__(self): super().__init__(timeout=None)
 
     async def handle_rating(self, interaction: discord.Interaction, rating: int):
-        # Odroczenie odpowiedzi, aby zapobiec wygaśnięciu tokenu interakcji Discorda
         await interaction.response.defer(ephemeral=False)
-        
         channel_id = interaction.channel_id
         closing_user = interaction.user
         guild = interaction.guild
 
-        print(f"🔄 [PROCES] Zamykanie dla kanału o ID: {channel_id}")
-
-        # KROK 1: Generowanie i wysyłanie logów (Najbardziej kluczowy krok przed destrukcją kanału)
         try:
             if guild:
                 target_channel = guild.get_channel(channel_id) or await guild.fetch_channel(channel_id)
                 if target_channel:
                     await generate_and_send_ticket_logs(channel_id, closing_user, rating, guild)
-                else:
-                    print("❌ [BŁĄD KRYTYCZNY] Bot nie znalazł kanału w pamięci serwera przed logowaniem.")
-            else:
-                print("❌ [BŁĄD KRYTYCZNY] Brak obiektu Guild w strukturze interakcji.")
         except Exception as e:
-            print(f"❌ [CRITICAL ERROR PRZY LOGOWANIU]: {e}")
+            print(f"❌ [BŁĄD LOGOWANIA]: {e}")
 
-        # KROK 2: Blokowanie przycisków na kanale, by nikt więcej ich nie kliknął
-        for child in self.children:
-            child.disabled = True
+        for child in self.children: child.disabled = True
         try:
-            await interaction.message.edit(content=f"⭐ Dziękujemy za ocenę: **{rating}/5**! Kanał zostanie usunięty.", view=self)
-        except Exception:
-            pass
+            await interaction.message.edit(content=f"⭐ Dziękujemy za ocenę: **{rating}/5**! Kanał zostanie zaraz skasowany.", view=self)
+        except Exception: pass
         
-        # KROK 3: Odczekanie chwili, aby użytkownik zdążył przeczytać podziękowanie i usunięcie kanału
         await asyncio.sleep(4)
         try:
             if guild:
                 target_channel = guild.get_channel(channel_id)
-                if target_channel:
-                    await target_channel.delete()
-                    print(f"🗑️ Kanał ticketu {channel_id} został pomyślnie usunięty.")
-        except Exception as e:
-            print(f"❌ Nie udało się usunąć kanału tekstowego: {e}")
+                if target_channel: await target_channel.delete()
+        except Exception: pass
 
     @discord.ui.button(label="1 ⭐", style=discord.ButtonStyle.secondary, custom_id="rate_1")
     async def rate_1(self, interaction: discord.Interaction, button: Button): await self.handle_rating(interaction, 1)
@@ -400,7 +544,7 @@ class TicketSurveyView(View):
 
 async def initiate_survey(channel):
     embed = Embed(
-        title="📊 Ankieta",
+        title="📊 Ankieta Satysfakcji",
         description="Zgłoszenie zostało pomyślnie zamknięte. Oceń pracę administracji za pomocą przycisków:",
         color=0xffb900
     )
@@ -413,20 +557,8 @@ async def initiate_survey(channel):
 class TicketCreateModal(Modal):
     def __init__(self):
         super().__init__(title="Formularz Zgłoszenia")
-
-        self.subject = TextInput(
-            label="Temat zgłoszenia",
-            placeholder="np. Błąd / Problem z zakupem / Skarga...",
-            required=True,
-            max_length=100
-        )
-        self.description = TextInput(
-            label="Opis problemu",
-            style=discord.TextStyle.paragraph,
-            placeholder="Opisz tutaj szczegóły sprawy...",
-            required=True,
-            max_length=1000
-        )
+        self.subject = TextInput(label="Temat zgłoszenia", placeholder="np. Błąd / Problem z zakupem...", required=True, max_length=100)
+        self.description = TextInput(label="Opis problemu", style=discord.TextStyle.paragraph, placeholder="Opisz tutaj szczegóły sprawy...", required=True, max_length=1000)
         self.add_item(self.subject)
         self.add_item(self.description)
 
@@ -446,12 +578,11 @@ class TicketCreateModal(Modal):
         }
         ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
         
-        # Zapis do cache - przypisanie wprowadzonych w Modalu danych
         ticket_data_cache[ticket_channel.id] = {
             "subject": self.subject.value,
             "description": self.description.value,
             "creator_mention": member.mention,
-            "claimer_mention": member.mention # Domyślna wartość
+            "claimer_mention": member.mention
         }
 
         embed = Embed(title="🎫 Nowe Zgłoszenie Otwarte!", color=0x5865f2)
@@ -467,10 +598,8 @@ class TicketActionView(View):
 
     @discord.ui.button(label="🔒 Zamknij Zgłoszenie", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn")
     async def close_ticket(self, interaction: discord.Interaction, button: Button):
-        # Nadpisywanie osoby obsługującej zgłoszenie adminem, który je zamyka
         if interaction.channel_id in ticket_data_cache:
             ticket_data_cache[interaction.channel_id]["claimer_mention"] = interaction.user.mention
-
         await interaction.response.send_message("Generuję ankietę końcową...", ephemeral=True)
         await initiate_survey(interaction.channel)
 
@@ -482,7 +611,7 @@ class TicketSetupView(View):
         await interaction.response.send_modal(TicketCreateModal())
 
 # ===============================
-# 🤖 KOMENDY BOTA DISCORD
+# 🤖 EVENTY I KOMENDY BOTA DISCORD
 # ===============================
 
 intents = Intents.default()
@@ -501,6 +630,26 @@ async def setup_hook():
 @bot.event
 async def on_ready(): print(f'🤖 Bot online jako: {bot.user}')
 
+# Przechwytywanie nowych wiadomości i wysyłanie ich na żywo na stronę WWW
+@bot.event
+async def on_message(message):
+    if message.author.bot and message.author != bot.user: return
+    
+    # Sprawdzamy czy wiadomość padła na kanale typu ticket-
+    if message.channel.name and message.channel.name.startswith("ticket-"):
+        payload = {
+            "channel_id": str(message.channel.id),
+            "author": message.author.name,
+            "content": message.content,
+            "is_bot": message.author.bot,
+            "time": datetime.now().strftime('%H:%M')
+        }
+        # Rozsyłamy powiadomienie do podłączonych w przeglądarce kart
+        for listener in web_listeners:
+            bot.loop.create_task(listener.put(payload))
+
+    await bot.process_commands(message)
+
 @bot.command(name="pomoc")
 async def pomoc(ctx):
     embed = Embed(
@@ -508,35 +657,17 @@ async def pomoc(ctx):
         description="Poniżej znajdziesz spis poleceń bota wraz z ich opisami i uprawnieniami.",
         color=0x5865f2
     )
-    embed.add_field(
-        name="👥 Komendy Użytkownika",
-        value="• `!pomoc` - Wyświetla to pełne okno pomocy z listą poleceń.",
-        inline=False
-    )
-    embed.add_field(
-        name="🛠️ Komendy Administratora",
-        value="• `!ticket` - Generuje panel ticketow.\n"
-              "• *(Wymagane uprawnienie: Administrator)*",
-        inline=False
-    )
-    embed.add_field(
-        name="💻 Dashboard",
-        value="Dostępny pod adresem IP bota z hasłem konfiguracyjnym:\n"
-              "• **Status**: Zmiana statusu bota.\n"
-              "• **Kanały**: Tworzenie nowych kanałów na serwerze.\n"
-              "• **Role**: Nadawanie ról użytkownikom przez ID.\n"
-              "• **Tickety**: Nie wiem co tu napisać no ale sa tickety .",
-        inline=False
-    )
-    embed.set_footer(text=f"Wywołane przez: {ctx.author.name}")
+    embed.add_field(name="👥 Komendy Użytkownika", value="• `!pomoc` - Wyświetla to pełne okno pomocy z listą poleceń.", inline=False)
+    embed.add_field(name="🛠️ Komendy Administratora", value="• `!ticket` - Generuje stały panel zgłoszeń z przyciskiem.", inline=False)
+    embed.add_field(name="💻 Panel Dashboard WWW", value="Posiada teraz wbudowany czat tekstowy na żywo do pełnej komunikacji bota z użytkownikami ticketu.", inline=False)
     await ctx.send(embed=embed)
 
 @bot.command(name="ticket")
 @commands.has_permissions(administrator=True)
 async def send_ticket_panel(ctx):
     embed = Embed(
-        title="🎫 Ticket",
-        description="Masz pytanie lub chcesz coś zgłosić? Kliknij przycisk poniżej, uzupełnij krótki formularz tematu, a otworzy się Twój prywatny kanał.",
+        title="🎫 Centrum Pomocy Serwera",
+        description="Masz pytanie lub chcesz coś zgłosić? Kliknij przycisk poniżej, uzupełnij krótki formularz tematu, a bot otworzy Twój prywatny kanał wsparcia.",
         color=0x2ed573
     )
     await ctx.send(embed=embed, view=TicketSetupView())
