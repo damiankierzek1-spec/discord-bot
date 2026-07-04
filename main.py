@@ -11,9 +11,7 @@ from typing import List
 # 🚨 KONFIGURACJA GLOBALNA I ZMIENNE ŚRODOWISKOWE 🚨
 # ===============================
 
-# !!! WAŻNE: Zmień te ID na rzeczywiste ID użytkowników administratorów. !!!
 ADMIN_IDS: List[int] = [652507356105539585, 550959315700154368, 590215623259193371]
-
 
 # --- WEB SERVER SETUP (Flask) - Utrzymanie Render/UptimeRobot ---
 app = Flask('')
@@ -23,20 +21,17 @@ def home():
     return "Kubusiowo - BOT żyje i działa!"
 
 def run_web_server():
-    """Uruchamia serwer Flask."""
-    # Pobiera port z zmiennych środowiskowych, domyślnie 8080
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
 def keep_alive():
-    """Utrzymuje serwer Flask działający w tle."""
     t = Thread(target=run_web_server)
     t.daemon = True 
     t.start()
 
 
 # ===============================
-# 📊 SYSTEM ANKIET (Polls) - CLASY UI
+# 📊 SYSTEM ANKIET (Polls) - KLASY UI
 # ===============================
 
 class PollModal(discord.ui.Modal, title="📊 Tworzenie nowej ankiety"):
@@ -99,7 +94,7 @@ class StartPollView(discord.ui.View):
 
 
 # ===============================
-# 🎫 SYSTEM TICKETÓW (Tickets) - CLASY UI
+# 🎫 SYSTEM TICKETÓW (Tickets) - KLASY UI
 # ===============================
 
 class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
@@ -109,7 +104,7 @@ class TicketModal(discord.ui.Modal, title="🎫 Formularz Zgłoszeniowy"):
     async def on_submit(self, interaction: discord.Interaction):
         guild = interaction.guild
         member = interaction.user
-        channel_name = f"ticket-{member.name}"
+        channel_name = f"ticket-{member.name.lower()}"
 
         existing_channel = utils.get(guild.text_channels, name=channel_name)
         if existing_channel:
@@ -231,7 +226,6 @@ class FeedbackView(discord.ui.View):
         await asyncio.sleep(5)
         await channel.delete()
 
-
     async def handle_rating(self, interaction: discord.Interaction, stars: str):
         self.rating = stars
         for child in self.children:
@@ -243,7 +237,6 @@ class FeedbackView(discord.ui.View):
             await self.process_close(interaction.channel, interaction.guild)
         except Exception as e:
              print(f"BŁĄD podczas procesu zamykania ticketu: {e}")
-
 
     @discord.ui.button(label="⭐", style=discord.ButtonStyle.primary, custom_id="star_1")
     async def star1(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_rating(interaction, "⭐ (1/5)")
@@ -270,17 +263,24 @@ class KubusiowoBot(discord.Client):
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self) 
 
+    async def setup_hook(self):
+        # Rejestrujemy widoki jako persistent (nie znikną po restarcie bota)
+        self.add_view(StartPollView())
+        self.add_view(TicketButton())
+        self.add_view(TicketControlView())
+        
+        # Synchronizacja komend globalnie przy starcie
+        await self.tree.sync()
+        print("✨ Komendy slash zostały zsynchronizowane globalnie.")
+
     async def on_ready(self):
         print(f'\n✅ Logged on as {self.user}!')
-        # Synchronizacja komend (Ważne! Musi być po pierwszym starcie!)
-        await self.tree.sync() 
-        print("✨ Komendy slash zostały zsynchronizowane globalnie.")
 
     async def on_member_join(self, member):
         channel = utils.get(member.guild.text_channels, name="⌊przyloty⌉⌊🌆⌉")
         if channel:
             embed = discord.Embed(title="🌆 Witaj na serwerze!", description=f"{member.mention} właśnie do nas dołączył!\nMiło Cię widzieć!", color=discord.Color.green())
-            embed.set_thumbnail(url=member.display_avatar.url)
+            embed.set_thumbnail(url=member.display_avatar.url if member.display_avatar else None)
             embed.set_footer(text=f"Teraz mamy {member.guild.member_count} osób.")
             await channel.send(embed=embed)
 
@@ -288,74 +288,63 @@ class KubusiowoBot(discord.Client):
         channel = utils.get(member.guild.text_channels, name="⌊odloty⌉⌊🌇⌉")
         if channel:
             embed = discord.Embed(title="🌇 Ktoś odleciał...", description=f"**{member.name}** opuścił serwer.", color=discord.Color.red())
-            embed.set_thumbnail(url=member.display_avatar.url)
+            embed.set_thumbnail(url=member.display_avatar.url if member.display_avatar else None)
             embed.set_footer(text=f"Teraz mamy {member.guild.member_count} osób.")
             await channel.send(embed=embed)
 
 # ===============================
-# 🚀 DEFINICJA KOMEND SLASH (Slash Commands - Twój interfejs!)
+# 🚀 DEFINICJA KOMEND SLASH (Podpięte pod bot.tree)
 # ===============================
 
-@app_commands.command(name="pomoc", description="📋 Wyświetla listę wszystkich komend administracyjnych i ich użycie.")
+intents = Intents.default()
+intents.message_content = True 
+intents.members = True          
+
+bot = KubusiowoBot(intents=intents)
+
+@bot.tree.command(name="pomoc", description="📋 Wyświetla listę wszystkich komend administracyjnych.")
 @app_commands.checks.has_permissions(administrator=True)
 async def pomoc_cmd(interaction: discord.Interaction):
-    # Uporządkowana logika pomocy (Poprawione błędy składniowe Componenta)
     help_data = [
         ("📩 Tickety", "Wyświetla panel do tworzenia ticketów.", "/ticket"),
         ("📊 Ankiety", "Wyświetla panel do tworzenia ankiet.", "/ankieta"),
-        ("👤 Rangi (Nadaj)", "Nadaje rangę użytkownikowi. Użycie: /rola @użytkownik @ranga", "/rola"),
-        ("👤 Rangi (Usuń)", "Odbiera rangę użytkownikowi. Użycie: /usunrola @użytkownik @ranga", "/usunrola"),
-        ("👥 Masowe rangi", "Nadaje/usuwa rangę masowo. Użycie: /rola-wszyscy @ranga", "/rola-wszyscy"),
+        ("👤 Rangi (Nadaj)", "Nadaje rangę użytkownikowi. Użycie: /rola @użytkownik ranga", "/rola"),
+        ("👤 Rangi (Usuń)", "Odbiera rangę użytkownikowi. Użycie: /usunrola @użytkownik ranga", "/usunrola"),
+        ("👥 Masowe rangi", "Nadaje rangę masowo. Użycie: /rola-wszyscy ranga", "/rola-wszyscy"),
         ("🌆 Powitania/Pożegnania", "Testuje kanały powitalne i pożegnalne.", "/test-witamy")
     ]
 
-    fields = []
-    for name, desc_text, usage in help_data:
-        field_value = f"{desc_text}\n\n**Użycie:** `{usage}`"
-        # Tworzenie pól z poprawnej składni Embed (wykorzystując discord.Embed.Field)
-        fields.append(discord.Embed.Field(name=f"📌 {name}", value=field_value))
-
     embed = discord.Embed(title="⚙️ Panel Zarządzania Botem", description="📋 Przejrzysta lista wszystkich komend administracyjnych.", color=discord.Color.dark_gold())
-    for field in fields:
-        embed.add_field(name=field.name, value=field.value)
+    for name, desc_text, usage in help_data:
+        embed.add_field(name=f"📌 {name}", value=f"{desc_text}\n**Użycie:** `{usage}`", inline=False)
 
     embed.set_footer(text="Dostępne tylko dla Adminów.")
     await interaction.response.send_message(embed=embed)
 
 
-@app_commands.command(name="ankieta", description="📊 Otwiera panel do tworzenia nowej ankiety.")
+@bot.tree.command(name="ankieta", description="📊 Otwiera panel do tworzenia nowej ankiety.")
 @app_commands.checks.has_permissions(administrator=True)
 async def ankieta_cmd(interaction: discord.Interaction):
-    # Ta komenda jest teraz poprawnie zarejestrowana!
     embed = discord.Embed(title="📊 Panel Zarządzania Ankietami", description="Kliknij przycisk poniżej, aby otworzyć formularz i wygenerować nową ankietę.", color=discord.Color.dark_purple())
     await interaction.response.send_message(embed=embed, view=StartPollView())
 
 
-@app_commands.command(name="ticket", description="📩 Otwiera panel do tworzenia nowego zgłoszenia (Ticket).")
+@bot.tree.command(name="ticket", description="📩 Otwiera panel do tworzenia nowego zgłoszenia (Ticket).")
 async def ticket_cmd(interaction: discord.Interaction):
-    # Ta komenda jest również poprawnie zarejestrowana!
     embed = discord.Embed(title="🎫 System Zgłoszeń Administracji", description="Potrzebujesz pomocy? Kliknij przycisk poniżej, aby wypełnić formularz.", color=discord.Color.blue())
     await interaction.response.send_message(embed=embed, view=TicketButton())
 
 
-# --- KOMENDY RÓL (Z Argumentami) ---
-
-@app_commands.command(name="rola", description="⏫ Nadaje określoną rangę użytkownikowi.")
+@bot.tree.command(name="rola", description="⏫ Nadaje określoną rangę użytkownikowi.")
 @app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(uzytkownik="Oznaczenie użytkownika, któremu nadajemy rangę.", ranga="Nazwa rangi do nadania (lub @ranga).")
+@app_commands.describe(uzytkownik="Oznaczenie użytkownika, któremu nadajemy rangę.", ranga="Nazwa rangi do nadania.")
 async def rola_cmd(interaction: discord.Interaction, uzytkownik: discord.Member, ranga: str):
     if interaction.user.id not in ADMIN_IDS:
         await interaction.response.send_message("❌ Brak uprawnień administratora.", ephemeral=True)
         return
 
     guild = interaction.guild
-    role: discord.Role | None = None
-    if role_mentions := interaction.role_mentions:
-         role = role_mentions[0]
-    else:
-        try:
-             role = utils.get(guild.roles, name=ranga) 
-        except Exception: pass
+    role = utils.get(guild.roles, name=ranga)
 
     if not role or role >= guild.me.top_role:
         await interaction.response.send_message("❌ Ranga nieznaleziona lub wyżej niż rola bota!", ephemeral=True)
@@ -367,22 +356,16 @@ async def rola_cmd(interaction: discord.Interaction, uzytkownik: discord.Member,
         await interaction.response.send_message("❌ Brak uprawnień do zarządzania rolami!", ephemeral=True)
 
 
-@app_commands.command(name="usunrola", description="⏬ Odbiera określoną rangę użytkownikowi.")
+@bot.tree.command(name="usunrola", description="⏬ Odbiera określoną rangę użytkownikowi.")
 @app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(uzytkownik="Oznaczenie użytkownika, od którego odbieramy rangę.", ranga="Nazwa rangi do odebrania (lub @ranga).")
+@app_commands.describe(uzytkownik="Oznaczenie użytkownika, od którego odbieramy rangę.", ranga="Nazwa rangi do odebrania.")
 async def usunrola_cmd(interaction: discord.Interaction, uzytkownik: discord.Member, ranga: str):
     if interaction.user.id not in ADMIN_IDS:
         await interaction.response.send_message("❌ Brak uprawnień administratora.", ephemeral=True)
         return
 
     guild = interaction.guild
-    role: discord.Role | None = None
-    if role_mentions := interaction.role_mentions:
-         role = role_mentions[0]
-    else:
-        try:
-             role = utils.get(guild.roles, name=ranga) 
-        except Exception: pass
+    role = utils.get(guild.roles, name=ranga)
 
     if not role or role >= guild.me.top_role:
         await interaction.response.send_message("❌ Ranga nieznaleziona lub wyżej niż rola bota!", ephemeral=True)
@@ -394,7 +377,7 @@ async def usunrola_cmd(interaction: discord.Interaction, uzytkownik: discord.Mem
         await interaction.response.send_message("❌ Brak uprawnień do zarządzania rolami!", ephemeral=True)
 
 
-@app_commands.command(name="rola-wszyscy", description="👑 Nadaje rangę wszystkim żyjącym członkom serwera.")
+@bot.tree.command(name="rola-wszyscy", description="👑 Nadaje rangę wszystkim członkom serwera.")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(ranga="Nazwa rangi do nadania masowo.")
 async def rola_wszyscy_cmd(interaction: discord.Interaction, ranga: str):
@@ -403,17 +386,15 @@ async def rola_wszyscy_cmd(interaction: discord.Interaction, ranga: str):
         return
 
     guild = interaction.guild
-    role: discord.Role | None = None
-    try:
-         role = utils.get(guild.roles, name=ranga)
-    except Exception:
-        pass
+    role = utils.get(guild.roles, name=ranga)
 
     if not role or role >= guild.me.top_role:
         await interaction.response.send_message("❌ Ranga nieznaleziona lub wyżej niż rola bota!", ephemeral=True)
         return
 
-    status_message = await interaction.followup.send(f"⏳ Dodawanie rangi **{role.name}** wszystkim...")
+    await interaction.response.send_message(f"⏳ Dodawanie rangi **{role.name}** wszystkim...")
+    status_message = await interaction.original_response()
+    
     all_members = [m for m in guild.members if not m.bot]
     total_members = len(all_members)
     success_count = 0
@@ -433,7 +414,7 @@ async def rola_wszyscy_cmd(interaction: discord.Interaction, ranga: str):
     await status_message.edit(content=f"✨ Zakończono! Dodano rangę **{role.name}** dla {success_count} osób.")
 
 
-@app_commands.command(name="usunrola-wszyscy", description="🗑️ Usuwa określoną rangę wszystkim żyjącym członkom serwera.")
+@bot.tree.command(name="usunrola-wszyscy", description="🗑️ Usuwa określoną rangę wszystkim członkom serwera.")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(ranga="Nazwa rangi do usunięcia masowo.")
 async def usunrola_wszyscy_cmd(interaction: discord.Interaction, ranga: str):
@@ -442,17 +423,15 @@ async def usunrola_wszyscy_cmd(interaction: discord.Interaction, ranga: str):
         return
 
     guild = interaction.guild
-    role: discord.Role | None = None
-    try:
-         role = utils.get(guild.roles, name=ranga)
-    except Exception:
-        pass
+    role = utils.get(guild.roles, name=ranga)
 
     if not role or role >= guild.me.top_role:
         await interaction.response.send_message("❌ Ranga nieznaleziona lub wyżej niż rola bota!", ephemeral=True)
         return
 
-    status_message = await interaction.followup.send(f"⏳ Usuwanie rangi **{role.name}** wszystkim...")
+    await interaction.response.send_message(f"⏳ Usuwanie rangi **{role.name}** wszystkim...")
+    status_message = await interaction.original_response()
+    
     all_members = [m for m in guild.members if not m.bot]
     total_members = len(all_members)
     success_count = 0
@@ -472,7 +451,7 @@ async def usunrola_wszyscy_cmd(interaction: discord.Interaction, ranga: str):
     await status_message.edit(content=f"❌ Zakończono! Odebrano rangę **{role.name}** {success_count} użytkownikom.")
 
 
-@app_commands.command(name="test-witamy", description="🌟 Testuje kanały powitalne i pożegnalne, wysyłając testowe komunikaty.")
+@bot.tree.command(name="test-witamy", description="🌟 Testuje kanały powitalne i pożegnalne.")
 async def test_witamy_cmd(interaction: discord.Interaction):
     if interaction.user.id not in ADMIN_IDS:
         await interaction.response.send_message("❌ Brak uprawnień!", ephemeral=True)
@@ -484,40 +463,23 @@ async def test_witamy_cmd(interaction: discord.Interaction):
     if ch1:
         e1 = discord.Embed(title="🌆 TEST PRZYLOTÓW", description="Test powitalny.", color=discord.Color.green())
         await ch1.send(embed=e1)
-    else:
-        # Musimy zareagować, żeby nie było błędu w komunikacji
-        pass 
 
     if ch2:
         e2 = discord.Embed(title="🌇 TEST ODLOTÓW", description="Test pożegnalny.", color=discord.Color.red())
         await ch2.send(embed=e2)
-    else:
-        pass 
 
-    # Wysłanie komunikatu potwierdzającego (używamy follow-up, bo już odpowiedzieliśmy na komendę)
-    try:
-        await interaction.followup.send("✅ Testy zakończone! Sprawdź kanały.")
-    except discord.Forbidden:
-        print("Brak uprawnień do wysłania komunikatu testowego.")
+    await interaction.response.send_message("✅ Testy zakończone! Sprawdź kanały.", ephemeral=True)
 
 
 # ===============================
-# 🚀 STARTUP I HOOKI NA WYDARZENIA (MAIN)
+# 🚀 STARTUP I RUN
 # ===============================
-
-intents = Intents.default()
-intents.message_content = True 
-intents.members = True          
-
-bot = KubusiowoBot(intents=intents)
-
 
 if __name__ == "__main__":
     print("\n" + "="*50)
     print("🚀 KUBUSIOWO BOT STARTUJE...")
     print("="*50 + "\n")
     
-    # 1. Utrzymywanie połączenia z Render/UptimeRobot
     keep_alive() 
 
     TOKEN = os.environ.get("DISCORD_TOKEN")
