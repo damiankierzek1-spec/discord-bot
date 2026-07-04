@@ -138,7 +138,7 @@ def home():
 
     return render_template_string(HTML_TEMPLATE, current_status=current_status, message=request.args.get('msg'))
 
-@app.route('/login', models=['POST'])
+@app.route('/login', methods=['POST'])
 def login():
     if request.form.get('password') == DASHBOARD_PASSWORD:
         session['logged_in'] = True
