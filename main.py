@@ -76,7 +76,7 @@ HTML_TEMPLATE = """
             <div>
                 <div class="has-text-centered mb-6">
                     <h1 class="title is-4 glow-text mb-1">🎮 KUBUSIOWO</h1>
-                    <p class="is-size-7 has-text-grey">v6.1 Fixed Log Engine</p>
+                    <p class="is-size-7 has-text-grey">tung tung tung sahur</p>
                 </div>
                 <ul class="menu-list">
                     <li><a href="#" class="is-active" onclick="switchTab(event, 'status-tab')">⚙️ Status bota</a></li>
@@ -156,7 +156,7 @@ HTML_TEMPLATE = """
                         const div = document.createElement('div');
                         div.className = 'ticket-badge';
                         div.innerHTML = `<div><strong style="color:#fff;">#${t.name}</strong></div>
-                        <form method="POST" action="/close-ticket-dash" style="margin:0;"><input type="hidden" name="channel_id" value="${t.id}"><button type="submit" class="button is-small btn-danger-glow px-4">Usuń z WWW</button></form>`;
+                        <form method="POST" action="/close-ticket-dash" style="margin:0;"><input type="hidden" name="channel_id" value="${t.id}"><button type="submit" class="button is-small btn-danger-glow px-4">Usuń</button></form>`;
                         listDiv.appendChild(div);
                     });
                 });
@@ -234,7 +234,7 @@ def assign_role():
 async def trigger_ticket_close_flow(channel_id: int):
     channel = bot_instance.get_channel(channel_id) or await bot_instance.fetch_channel(channel_id)
     if channel:
-        await channel.send("⚠️ Zdalne żądanie zamknięcia z panelu WWW. Wywołuję ankietę satysfakcji.")
+        await channel.send("⚠️ Oceń pomoc.")
         await initiate_survey(channel)
 
 async def create_channel_async(name: str, channel_type: str):
@@ -315,7 +315,7 @@ async def generate_and_send_ticket_logs(channel_id: int, closing_user, rating: i
     # Budowanie profesjonalnego i estetycznego embedu logów
     log_embed = Embed(color=0xff4757) 
     log_embed.title = "🔒 Archiwum Zgłoszenia"
-    log_embed.description = f"Kanał **{target_channel.name}** został pomyślnie zamknięty i zarchiwizowany."
+    log_embed.description = f"Kanał **{target_channel.name}** został pomyślnie zamknięty."
     
     log_embed.add_field(name="🛠️ Obsługujący admin:", value=data.get('claimer_mention'), inline=True)
     log_embed.add_field(name="🔒 Zamknął zgłoszenie:", value=closing_user.mention, inline=True)
@@ -349,7 +349,7 @@ class TicketSurveyView(View):
         closing_user = interaction.user
         guild = interaction.guild
 
-        print(f"🔄 [PROCES] Rozpoczynam procedurę zamykania dla kanału o ID: {channel_id}")
+        print(f"🔄 [PROCES] Zamykanie dla kanału o ID: {channel_id}")
 
         # KROK 1: Generowanie i wysyłanie logów (Najbardziej kluczowy krok przed destrukcją kanału)
         try:
@@ -368,7 +368,7 @@ class TicketSurveyView(View):
         for child in self.children:
             child.disabled = True
         try:
-            await interaction.message.edit(content=f"⭐ Dziękujemy za ocenę: **{rating}/5**! Kanał zostanie zaraz skasowany.", view=self)
+            await interaction.message.edit(content=f"⭐ Dziękujemy za ocenę: **{rating}/5**! Kanał zostanie usunięty.", view=self)
         except Exception:
             pass
         
@@ -400,7 +400,7 @@ class TicketSurveyView(View):
 
 async def initiate_survey(channel):
     embed = Embed(
-        title="📊 Ankieta Satysfakcji",
+        title="📊 Ankieta",
         description="Zgłoszenie zostało pomyślnie zamknięte. Oceń pracę administracji za pomocą przycisków:",
         color=0xffb900
     )
@@ -515,17 +515,17 @@ async def pomoc(ctx):
     )
     embed.add_field(
         name="🛠️ Komendy Administratora",
-        value="• `!ticket` - Generuje stały interaktywny panel zgłoszeń z przyciskiem.\n"
+        value="• `!ticket` - Generuje panel ticketow.\n"
               "• *(Wymagane uprawnienie: Administrator)*",
         inline=False
     )
     embed.add_field(
-        name="💻 Zdalny Panel WWW (Dashboard)",
+        name="💻 Dashboard",
         value="Dostępny pod adresem IP bota z hasłem konfiguracyjnym:\n"
-              "• **Status**: Dynamiczna zmiana statusu bota.\n"
+              "• **Status**: Zmiana statusu bota.\n"
               "• **Kanały**: Tworzenie nowych kanałów na serwerze.\n"
-              "• **Role**: Nadawanie ról użytkownikom przez podanie ich ID.\n"
-              "• **Tickety**: Zdalny monitor i opcja usuwania z ankietą.",
+              "• **Role**: Nadawanie ról użytkownikom przez ID.\n"
+              "• **Tickety**: Nie wiem co tu napisać no ale sa tickety .",
         inline=False
     )
     embed.set_footer(text=f"Wywołane przez: {ctx.author.name}")
@@ -535,8 +535,8 @@ async def pomoc(ctx):
 @commands.has_permissions(administrator=True)
 async def send_ticket_panel(ctx):
     embed = Embed(
-        title="🎫 Centrum Pomocy Serwera",
-        description="Masz pytanie lub chcesz coś zgłosić? Kliknij przycisk poniżej, uzupełnij krótki formularz tematu, a bot otworzy Twój prywatny kanał wsparcia.",
+        title="🎫 Ticket",
+        description="Masz pytanie lub chcesz coś zgłosić? Kliknij przycisk poniżej, uzupełnij krótki formularz tematu, a otworzy się Twój prywatny kanał.",
         color=0x2ed573
     )
     await ctx.send(embed=embed, view=TicketSetupView())
