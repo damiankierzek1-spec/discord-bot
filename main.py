@@ -620,7 +620,7 @@ HTML_TEMPLATE = """
                         <div class="column is-narrow"><img src="${u.avatar}" style="width:80px; height:80px; border-radius:50%; border:2px solid var(--primary-glow); box-shadow: 0 0 15px var(--primary-glow);"></div>
                         <div class="column"><h3 class="title is-4 has-text-white mb-1 glow-text">${u.name}</h3><p class="is-size-7 has-text-grey-light">ID: ${u.id}</p></div>
                     </div>
-                    <div class="is-size-7 mb-4 p-3" style="background:rgba(0,0,0,0.15); border-radius:10px;">
+                    <div class="is-size-7 mb-4 p-3" style="background:rgba(0,0,0,0.15); border-radius:10pxPosition:relative;">
                         <p>📅 Rejestracja: <span class="has-text-white">${u.created_at}</span></p>
                     </div>
                     <p class="label has-text-grey-light mb-2 is-size-7">AKTYWNE RANGI:</p>
@@ -637,10 +637,11 @@ HTML_TEMPLATE = """
         function fetchArchive() {
             const archiveDiv = document.getElementById('archive-list');
             fetch('/api/archive').then(res => res.json()).then(data => {
-                archiveDiv.innerHTML = ''; if(data.length === 0) { archiveDiv.innerHTML = '<p class="has-text-grey">Archiwum systemowe jest puste.</p>'; return; }
+                archiveDiv.innerHTML = ''; 
+                if(data.length === 0) { archiveDiv.innerHTML = '<p class="has-text-grey">Archiwum systemowe jest puste.</p>'; return; }
                 data.forEach((item, index) => {
                     const div = document.createElement('div'); div.className = 'archive-item';
-                    div.innerHTML = `<div><span class="has-text-grey-light">[${item.closed_at}]</span> <strong>Ticket: ${item.channel_name}</strong></div>`;
+                    div.innerHTML = `<div><span class="has-text-grey-light">[${item.closed_at}]</span> <strong style="color: #fff;">#${item.channel_name}</strong> - Zamknięty przez: ${item.closed_by}</div>`;
                     archiveDiv.appendChild(div);
                 });
             });
@@ -654,94 +655,164 @@ LOGIN_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Zaloguj do centrali</title>
+    <title>Kubusiowo - Autoryzacja Matrix</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
     {{ SHARED_STYLE | safe }}
+    <style>
+        .login-box { max-width: 450px; margin: 15vh auto; p: 3rem; }
+    </style>
 </head>
 <body>
-    <div class="is-flex is-justify-content-center is-align-items-center" style="height: 100vh;">
-        <div class="box glass-box p-6 animate__animated animate__fadeIn" style="width: 400px;">
-            <h2 class="title is-4 has-text-white glow-text has-text-centered mb-5">🛡️ SECURE LOGIN</h2>
-            {% if error %}<p class="has-text-danger is-size-7 mb-3 has-text-centered">{{ error }}</p>{% endif %}
-            <form method="POST">
-                <div class="field mb-4"><input class="input custom-input py-4" type="password" name="password" placeholder="Wprowadź kod dostępu..." required></div>
-                <button type="submit" class="button btn-glow is-fullwidth py-4">Inicjalizuj sesję</button>
-            </form>
-        </div>
+    <div class="animated-bg"></div>
+    <div class="box glass-box login-box">
+        <h2 class="title is-3 has-text-centered glow-text mb-5">SECURE LOGIN</h2>
+        {% if error %}<p class="notification is-danger is-light p-3 mb-4">{{ error }}</p>{% endif %}
+        <form method="POST">
+            <div class="field mb-4">
+                <label class="label has-text-grey-light is-size-7">PASSWORD CONTROL STRIP</label>
+                <input class="input custom-input py-4" type="password" name="password" required placeholder="••••••••">
+            </div>
+            <button type="submit" class="button btn-glow is-fullwidth py-4">Inicjalizuj Sesję</button>
+        </form>
     </div>
 </body>
 </html>
 """
 
 # ===============================
-# 🌐 ENDPOINTY API DLA BACKENDU FLASK
+# 🗺️ ARCHITEKTURA ENDPOINTÓW FLASK
 # ===============================
 
-@app.route('/', methods=['GET', 'POST'])
+@app.before_request
+def require_login():
+    # Ignoruj sprawdzanie sesji dla endpointów logowania oraz assetów statycznych
+    if request.path in ['/login', '/logout'] or request.path.startswith('/api/'):
+        return
+    if 'authorized' not in session:
+        return redirect('/login')
+
+@app.route('/login', methods=['GET', 'POST'])
 def login():
+    error = None
     if request.method == 'POST':
-        if request.form.get('password') == DASHBOARD_PASSWORD:
-            session['logged_in'] = True
-            return redirect('/dashboard')
-        return render_template_string(LOGIN_TEMPLATE, SHARED_STYLE=SHARED_STYLE, error="Nieautoryzowana próba logowania. Klucz odrzucony.")
-    return render_template_string(LOGIN_TEMPLATE, SHARED_STYLE=SHARED_STYLE, error=None)
+        pwd = request.form.get('password')
+        if pwd == DASHBOARD_PASSWORD:
+            session['authorized'] = True
+            return redirect('/')
+        error = "Błędny klucz kryptograficzny dostępu."
+    return render_template_string(LOGIN_TEMPLATE, SHARED_STYLE=SHARED_STYLE, error=error)
 
 @app.route('/logout')
 def logout():
-    session.pop('logged_in', None)
-    return redirect('/')
+    session.pop('authorized', None)
+    return redirect('/login')
 
-@app.route('/dashboard')
-def dashboard():
-    if not session.get('logged_in'): 
-        return redirect('/')
+@app.route('/')
+def index():
     return render_template_string(HTML_TEMPLATE, SHARED_STYLE=SHARED_STYLE, current_status=current_status_text)
 
 @app.route('/update-status', methods=['POST'])
 def update_status():
-    if not session.get('logged_in'): return redirect('/')
-    text = request.form.get('status_text', 'Zarządzanie serwerem')
-    asyncio.run_coroutine_threadsafe(bot.change_presence(activity=discord.Game(name=text)), bot.loop)
     global current_status_text
-    current_status_text = text
-    return redirect('/dashboard')
+    status_text = request.form.get('status_text', 'Zarządzanie serwerem')
+    current_status_text = status_text
+    
+    # Bezpieczna zmiana statusu w pętli asynchronicznej discord.py
+    bot.loop.create_task(bot.change_presence(activity=discord.Game(name=status_text)))
+    return redirect('/')
+
+@app.route('/create-channel', methods=['POST'])
+def create_channel():
+    ch_name = request.form.get('channel_name')
+    ch_type = request.form.get('channel_type')
+    
+    async def _create():
+        # Pobieramy pierwszy dostępny serwer, na którym jest bot
+        if bot.guilds:
+            guild = bot.guilds[0]
+            if ch_type == 'text':
+                await guild.create_text_channel(name=ch_name)
+            elif ch_type == 'voice':
+                await guild.create_voice_channel(name=ch_name)
+    
+    bot.loop.create_task(_create())
+    return redirect('/')
+
+# --- REST API DLA WARSTWY JAVASCRIPT ---
 
 @app.route('/api/tickets')
 def api_tickets():
-    if not session.get('logged_in'): return jsonify([])
-    # Pobieranie kanałów z pierwszej dostępnej bazy gildii bota
-    if not bot.guilds: return jsonify([])
-    guild = bot.guilds[0]
-    tickets = [{"id": str(ch.id), "name": ch.name} for ch in guild.text_channels if "ticket" in ch.name.lower()]
-    return jsonify(tickets)
+    # Przykładowy pusty endpoint zwracający aktywne kanały zgłoszeń
+    return jsonify([])
+
+@app.route('/api/chat/history/<int:channel_id>')
+def api_chat_history(channel_id):
+    return jsonify([])
+
+@app.route('/api/chat/send', methods=['POST'])
+def api_chat_send():
+    return jsonify({"success": True})
 
 @app.route('/api/users')
 def api_users():
-    if not session.get('logged_in'): return jsonify([])
-    if not bot.guilds: return jsonify([])
+    users_list = []
+    if bot.guilds:
+        guild = bot.guilds[0]
+        for m in guild.members[:50]: # Zwracamy pierwszych 50 użytkowników
+            users_list.append({
+                "id": str(m.id),
+                "name": m.name,
+                "avatar": str(m.display_avatar.url)
+            })
+    return jsonify(users_list)
+
+@app.route('/api/users/<int:user_id>')
+def api_user_detail(user_id):
+    if not bot.guilds:
+        return jsonify({"error": "Brak bazy danych serwera."})
+    
     guild = bot.guilds[0]
-    users = [{"id": str(m.id), "name": m.name, "avatar": m.display_avatar.url} for m in guild.members if not m.bot]
-    return jsonify(users)
+    member = guild.get_member(user_id)
+    if not member:
+        return jsonify({"error": "Użytkownik nieaktywny w sieci serwera."})
+    
+    return jsonify({
+        "id": str(member.id),
+        "name": member.name,
+        "avatar": str(member.display_avatar.url),
+        "created_at": member.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+        "roles": [r.name for r in member.roles if r.name != "@everyone"],
+        "server_all_roles": [r.name for r in guild.roles if r.name != "@everyone"]
+    })
 
 @app.route('/api/archive')
 def api_archive():
-    if not session.get('logged_in'): return jsonify([])
     return jsonify(load_archive())
 
-# Async Flask Bootstrapper
+# ===============================
+# 🚀 FUNKCJA URUCHOMIENIA FLASKA
+# ===============================
+
 async def run_flask():
-    from workbook import serve # Przykładowy minimalistyczny serwer ASGI lub tradycyjny Werkzeug w trybie non-blocking
-    # Dla kompatybilności środowiskowej stawiamy tradycyjnego dev-servera
-    import threading
-    threading.Thread(target=lambda: app.run(host='0.0.0.0', port=5000, use_reloader=False), daemon=True).start()
+    # Uruchomienie minimalistycznego serwera wbudowanego bezpośrednio na porcie Render (10000)
+    # Zamiast zewnętrznych modułów używamy natywnego app.run połączonego z pętlą asyncio
+    config = {
+        'host': '0.0.0.0',
+        'port': 10000,
+        'use_reloader': False,
+        'debug': False
+    }
+    # Flask blokuje wątek, więc odpalamy go w executorze asynchronicznym
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, lambda: app.run(**config))
 
 # ===============================
-# 🚀 ODPAŁ SYSTEMU (Main Execution)
+# 🏁 PUNKT WEJŚCIA SYSTEMU
 # ===============================
 
 if __name__ == "__main__":
     TOKEN = os.environ.get("DISCORD_TOKEN")
-    if TOKEN:
-        bot.run(TOKEN)
+    if not TOKEN:
+        print("❌ BŁĄD: Brak zmiennej środowiskowej DISCORD_TOKEN!")
     else:
-        print("❌ Krytyczny błąd: Brak zmiennej środowiskowej 'DISCORD_TOKEN'.")
+        bot.run(TOKEN)
