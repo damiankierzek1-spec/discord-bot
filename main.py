@@ -1,29 +1,23 @@
 import discord
-from discord import app_commands, Intents, Embed, File
-from discord.ui import Button, View, Modal, TextInput
+from discord import app_commands, Intents
 import os
 import json
-import random
-import io
 import asyncio
-from datetime import datetime, timedelta
+import threading
 from typing import List
-from flask import Flask, render_template_string, request, redirect, session, jsonify, Response
-from PIL import Image, ImageDraw, ImageFont
+from flask import Flask, render_template_string, request, redirect, session, jsonify
 
 # ===============================
-# 🚨 KONFIGURACJA GLOBALNA 🚨
+# KONFIGURACJA GLOBALNA
 # ===============================
 
 ADMIN_IDS: List[int] = [652507356105539585, 550959315700154368, 590215623259193371]
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PWD", "Kuba123!")
 ARCHIVE_FILE = "ticket_archive.json"
 
-# Inicjalizacja aplikacji Flask
-app = Flask('')
+app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET", "super-tajny-klucz-kubusiowo")
 
-# Globalny stan bota
 current_status_text = "Zarządzanie serwerem"
 ticket_data_cache = {}
 captcha_sessions = {}
@@ -31,18 +25,18 @@ captcha_sessions = {}
 def load_archive():
     if os.path.exists(ARCHIVE_FILE):
         try:
-            with open(ARCHIVE_FILE, 'r', encoding='utf-8') as f: 
+            with open(ARCHIVE_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except: 
+        except:
             return []
     return []
 
 def save_whole_archive(archive_data):
-    with open(ARCHIVE_FILE, 'w', encoding='utf-8') as f: 
+    with open(ARCHIVE_FILE, "w", encoding="utf-8") as f:
         json.dump(archive_data, f, ensure_ascii=False, indent=4)
 
 # ===============================
-# 🤖 ARCHITEKTURA BOTA (discord.py)
+# BOT DISCORD
 # ===============================
 
 class ManagementBot(discord.Client):
@@ -52,25 +46,23 @@ class ManagementBot(discord.Client):
         intents.members = True
         intents.guilds = True
         super().__init__(intents=intents)
-        # Drzewo komend aplikacji (Slash Commands)
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
-        # Uruchomienie Flaska w pętli asynchronicznej bota
-        self.loop.create_task(run_flask())
+        pass
 
 bot = ManagementBot()
 
 # ===============================
-# 🛠️ SYSTEM KOMEND UKOŚNIKA (Slash Commands)
+# KOMENDY SLASH
 # ===============================
 
 @bot.tree.command(name="sync", description="Synchronizuje komendy ukośnika z API Discorda (Tylko Admin)")
 async def sync_commands(interaction: discord.Interaction):
     if interaction.user.id not in ADMIN_IDS:
-        await interaction.response.send_message("❌ Nie posiadasz uprawnień do synchronizacji sieciowej.", ephemeral=True)
+        await interaction.response.send_message("❌ Nie posiadasz uprawnień do synchronizacji.", ephemeral=True)
         return
-    
+
     await interaction.response.defer(ephemeral=True)
     try:
         synced = await bot.tree.sync()
@@ -84,7 +76,7 @@ async def change_status(interaction: discord.Interaction, tekst: str):
     if interaction.user.id not in ADMIN_IDS:
         await interaction.response.send_message("❌ Brak uprawnień developerskich.", ephemeral=True)
         return
-    
+
     global current_status_text
     current_status_text = tekst
     await bot.change_presence(activity=discord.Game(name=tekst))
@@ -96,7 +88,7 @@ async def clear_messages(interaction: discord.Interaction, ilosc: int):
     if not interaction.user.guild_permissions.manage_messages:
         await interaction.response.send_message("❌ Wymagane uprawnienia: Zarządzanie Wiadomościami.", ephemeral=True)
         return
-    
+
     await interaction.response.defer(ephemeral=True)
     deleted = await interaction.channel.purge(limit=ilosc)
     await interaction.followup.send(f"🗑️ Usunięto {len(deleted)} wiadomości.")
@@ -107,13 +99,13 @@ async def on_ready():
     await bot.change_presence(activity=discord.Game(name=current_status_text))
 
 # ===============================
-# 🎨 ANiMOWANE I BOGATE STYLE CSS (CYBERPUNK GLOW SYSTEM)
+# STYLE HTML
 # ===============================
 
 SHARED_STYLE = """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght=300;400;500;600;700&display=swap');
-    
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
     :root {
         --bg-gradient: radial-gradient(circle at 50% 50%, #080512 0%, #020105 100%);
         --primary-glow: #5865f2;
@@ -124,11 +116,11 @@ SHARED_STYLE = """
         --border-glow: rgba(88, 101, 242, 0.2);
     }
 
-    body { 
-        font-family: 'Space Grotesk', sans-serif; 
+    body {
+        font-family: 'Space Grotesk', sans-serif;
         background: var(--bg-gradient);
-        color: #e2e8f0; 
-        min-height: 100vh; 
+        color: #e2e8f0;
+        min-height: 100vh;
         margin: 0;
         overflow-x: hidden;
         position: relative;
@@ -157,15 +149,15 @@ SHARED_STYLE = """
     }
 
     .dashboard-container { display: flex; min-height: 100vh; position: relative; z-index: 1; }
-    
-    .sidebar { 
-        width: 280px; 
-        background: rgba(8, 5, 18, 0.75); 
-        border-right: 1px solid var(--border-glow); 
-        backdrop-filter: blur(30px); 
-        padding: 2.5rem 1.5rem; 
-        display: flex; 
-        flex-direction: column; 
+
+    .sidebar {
+        width: 280px;
+        background: rgba(8, 5, 18, 0.75);
+        border-right: 1px solid var(--border-glow);
+        backdrop-filter: blur(30px);
+        padding: 2.5rem 1.5rem;
+        display: flex;
+        flex-direction: column;
         justify-content: space-between;
         box-shadow: 8px 0 35px rgba(0,0,0,0.6);
         z-index: 2;
@@ -173,18 +165,19 @@ SHARED_STYLE = """
 
     .main-content { flex: 1; padding: 3rem; overflow-y: auto; height: 100vh; position: relative; z-index: 1; }
 
-    .menu-list a { 
-        color: #8a8da4; 
-        padding: 0.9rem 1.2rem; 
-        border-radius: 12px; 
-        margin-bottom: 0.6rem; 
-        display: flex; 
-        align-items: center; 
-        gap: 14px; 
-        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
+    .menu-list a {
+        color: #8a8da4;
+        padding: 0.9rem 1.2rem;
+        border-radius: 12px;
+        margin-bottom: 0.6rem;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         font-weight: 500;
         border: 1px solid transparent;
     }
+
     .menu-list a:hover {
         color: #fff;
         background: rgba(255, 255, 255, 0.04);
@@ -192,82 +185,106 @@ SHARED_STYLE = """
         border-color: rgba(88, 101, 242, 0.2);
         box-shadow: 0 0 15px rgba(88, 101, 242, 0.1);
     }
-    .menu-list a.is-active { 
-        background: linear-gradient(90deg, rgba(88, 101, 242, 0.25) 0%, rgba(88, 101, 242, 0.02) 100%); 
-        color: #fff; 
+
+    .menu-list a.is-active {
+        background: linear-gradient(90deg, rgba(88, 101, 242, 0.25) 0%, rgba(88, 101, 242, 0.02) 100%);
+        color: #fff;
         border-left: 4px solid var(--primary-glow);
         padding-left: 14px;
         text-shadow: 0 0 15px rgba(88, 101, 242, 0.6);
         border-color: rgba(88, 101, 242, 0.3);
     }
 
-    .glass-box { 
-        background: var(--panel-bg); 
-        border: 1px solid var(--border-glow); 
-        border-radius: 20px; 
-        backdrop-filter: blur(20px); 
+    .glass-box {
+        background: var(--panel-bg);
+        border: 1px solid var(--border-glow);
+        border-radius: 20px;
+        backdrop-filter: blur(20px);
         box-shadow: 0 20px 45px rgba(0, 0, 0, 0.5);
         transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
     }
+
     .glass-box:hover {
         border-color: rgba(88, 101, 242, 0.4);
         box-shadow: 0 25px 55px rgba(88, 101, 242, 0.15);
         transform: translateY(-3px);
     }
 
-    .glow-text { 
-        color: #fff; 
-        text-shadow: 0 0 15px rgba(88, 101, 242, 0.8), 0 0 30px rgba(88, 101, 242, 0.3); 
+    .glow-text {
+        color: #fff;
+        text-shadow: 0 0 15px rgba(88, 101, 242, 0.8), 0 0 30px rgba(88, 101, 242, 0.3);
     }
 
-    .btn-glow { 
-        background: linear-gradient(135deg, #6c7fff, #5865f2); 
-        color: white; border: none; font-weight: 600; border-radius: 10px; 
-        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); 
+    .btn-glow {
+        background: linear-gradient(135deg, #6c7fff, #5865f2);
+        color: white;
+        border: none;
+        font-weight: 600;
+        border-radius: 10px;
+        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
         box-shadow: 0 4px 20px rgba(88, 101, 242, 0.4);
     }
-    .btn-glow:hover { 
-        background: linear-gradient(135deg, #5865f2, #4752c4); 
-        transform: translateY(-2px); 
-        box-shadow: 0 6px 25px rgba(88, 101, 242, 0.7); 
-        color: white; 
+
+    .btn-glow:hover {
+        background: linear-gradient(135deg, #5865f2, #4752c4);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 25px rgba(88, 101, 242, 0.7);
+        color: white;
     }
 
-    .btn-danger-glow { 
-        background: linear-gradient(135deg, #ff4757, #ff0055); 
-        color: white; border: none; font-weight: 600; border-radius: 10px; transition: all 0.3s ease; 
+    .btn-danger-glow {
+        background: linear-gradient(135deg, #ff4757, #ff0055);
+        color: white;
+        border: none;
+        font-weight: 600;
+        border-radius: 10px;
+        transition: all 0.3s ease;
         box-shadow: 0 4px 15px rgba(255, 0, 85, 0.3);
     }
-    .btn-danger-glow:hover { transform: translateY(-2px); box-shadow: 0 6px 25px rgba(255, 0, 85, 0.6); }
 
-    .btn-warning-glow { 
-        background: linear-gradient(135deg, #ffa502, #ff7f50); 
-        color: white; border: none; font-weight: 600; border-radius: 10px; transition: all 0.3s ease; 
+    .btn-danger-glow:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 25px rgba(255, 0, 85, 0.6);
+        color: white;
+    }
+
+    .btn-warning-glow {
+        background: linear-gradient(135deg, #ffa502, #ff7f50);
+        color: white;
+        border: none;
+        font-weight: 600;
+        border-radius: 10px;
+        transition: all 0.3s ease;
         box-shadow: 0 4px 15px rgba(255, 165, 2, 0.3);
     }
-    .btn-warning-glow:hover { transform: translateY(-2px); box-shadow: 0 6px 25px rgba(255, 165, 2, 0.6); }
 
-    .custom-input, .custom-select select { 
-        background: rgba(5, 3, 10, 0.6) !important; 
-        border: 1px solid rgba(255, 255, 255, 0.08) !important; 
-        color: #fff !important; 
-        border-radius: 10px !important; 
+    .btn-warning-glow:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 25px rgba(255, 165, 2, 0.6);
+    }
+
+    .custom-input, .custom-select select {
+        background: rgba(5, 3, 10, 0.6) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        color: #fff !important;
+        border-radius: 10px !important;
         transition: all 0.3s ease;
     }
-    .custom-input:focus, .custom-select select:focus { 
-        border-color: var(--primary-glow) !important; 
-        box-shadow: 0 0 15px rgba(88, 101, 242, 0.3) !important; 
+
+    .custom-input:focus, .custom-select select:focus {
+        border-color: var(--primary-glow) !important;
+        box-shadow: 0 0 15px rgba(88, 101, 242, 0.3) !important;
     }
 
     .tab-content { display: none; }
-    .tab-content.is-active { 
-        display: block; 
-        animation: cyberSlideIn 0.5s cubic-bezier(0.19, 1, 0.22, 1) forwards; 
+    .tab-content.is-active {
+        display: block;
+        animation: cyberSlideIn 0.5s cubic-bezier(0.19, 1, 0.22, 1) forwards;
     }
 
-    @keyframes cyberSlideIn { 
-        from { opacity: 0; transform: translateY(25px) scale(0.97); filter: blur(6px); } 
-        to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); } 
+    @keyframes cyberSlideIn {
+        from { opacity: 0; transform: translateY(25px) scale(0.97); filter: blur(6px); }
+        to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
     }
 
     .live-pulse-dot {
@@ -276,6 +293,7 @@ SHARED_STYLE = """
         animation: pulseDot 1.8s infinite;
         margin-right: 8px;
     }
+
     @keyframes pulseDot {
         0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 255, 163, 0.7); }
         70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(0, 255, 163, 0); }
@@ -284,32 +302,37 @@ SHARED_STYLE = """
 
     .chat-container { display: flex; height: 650px; gap: 25px; }
     .chat-channels-list { width: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-    
-    .chat-channel-item { 
-        padding: 14px; border-radius: 12px; cursor: pointer; 
+
+    .chat-channel-item {
+        padding: 14px; border-radius: 12px; cursor: pointer;
         background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.04);
         transition: all 0.3s ease;
     }
-    .chat-channel-item:hover, .chat-channel-item.active { 
+
+    .chat-channel-item:hover, .chat-channel-item.active {
         background: linear-gradient(135deg, rgba(88,101,242,0.25), rgba(0,242,254,0.05));
-        border-color: var(--primary-glow); color: #fff; 
+        border-color: var(--primary-glow); color: #fff;
         transform: scale(1.02);
         box-shadow: 0 10px 20px rgba(0,0,0,0.2);
     }
 
     .chat-window { flex: 1; display: flex; flex-direction: column; height: 100%; }
-    .chat-messages { 
-        flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; 
+    .chat-messages {
+        flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px;
         background: rgba(0,0,0,0.3); border-radius: 16px; border: 1px solid rgba(255,255,255,0.04);
         scroll-behavior: smooth;
     }
-    
-    .chat-msg-row { 
-        display: flex; flex-direction: column; max-width: 70%; padding: 10px 15px; 
+
+    .chat-msg-row {
+        display: flex; flex-direction: column; max-width: 70%; padding: 10px 15px;
         border-radius: 14px; animation: msgFadeIn 0.3s ease-out forwards;
     }
-    @keyframes msgFadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-    
+
+    @keyframes msgFadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
     .chat-msg-row.bot { background: rgba(88, 101, 242, 0.18); border: 1px solid rgba(88, 101, 242, 0.3); align-self: flex-end; border-bottom-right-radius: 2px; }
     .chat-msg-row.user { background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); align-self: flex-start; border-bottom-left-radius: 2px; }
     .chat-msg-author { font-size: 0.8rem; font-weight: 600; color: #a0aec0; margin-bottom: 4px; }
@@ -318,39 +341,43 @@ SHARED_STYLE = """
     .user-split { display: flex; gap: 25px; height: 700px; }
     .user-list-side { width: 320px; display: flex; flex-direction: column; gap: 12px; }
     .user-scroll-area { flex: 1; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.04); }
-    
-    .user-list-item { 
-        display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 10px; 
-        cursor: pointer; margin-bottom: 8px; background: rgba(255,255,255,0.01); 
-        border: 1px solid transparent; transition: all 0.25s ease; 
+
+    .user-list-item {
+        display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 10px;
+        cursor: pointer; margin-bottom: 8px; background: rgba(255,255,255,0.01);
+        border: 1px solid transparent; transition: all 0.25s ease;
     }
-    .user-list-item:hover, .user-list-item.active { 
-        background: rgba(88, 101, 242, 0.15); border-color: rgba(88, 101, 242, 0.3); 
+
+    .user-list-item:hover, .user-list-item.active {
+        background: rgba(88, 101, 242, 0.15); border-color: rgba(88, 101, 242, 0.3);
         color: #fff; transform: translateX(4px);
     }
+
     .user-list-item img { width: 36px; height: 36px; border-radius: 50%; box-shadow: 0 0 10px rgba(0,0,0,0.5); }
     .user-profile-side { flex: 1; background: rgba(255,255,255,0.015); border: 1px solid rgba(255,255,255,0.04); padding: 30px; border-radius: 20px; overflow-y: auto; }
-    
-    .role-tag { 
-        display: inline-block; background: rgba(88,101,242,0.12); border: 1px solid rgba(88,101,242,0.4); 
-        color: #babcff; padding: 3px 10px; border-radius: 6px; font-size: 0.78rem; margin: 4px; 
+
+    .role-tag {
+        display: inline-block; background: rgba(88,101,242,0.12); border: 1px solid rgba(88,101,242,0.4);
+        color: #babcff; padding: 3px 10px; border-radius: 6px; font-size: 0.78rem; margin: 4px;
         transition: all 0.2s ease;
     }
+
     .role-tag:hover { background: rgba(88,101,242,0.3); transform: scale(1.05); }
 
-    .ticket-badge, .archive-item { 
-        background: rgba(255, 255, 255, 0.01); border: 1px solid rgba(255, 255, 255, 0.04); 
-        padding: 16px 24px; border-radius: 14px; margin-bottom: 14px; 
+    .ticket-badge, .archive-item {
+        background: rgba(255, 255, 255, 0.01); border: 1px solid rgba(255, 255, 255, 0.04);
+        padding: 16px 24px; border-radius: 14px; margin-bottom: 14px;
         display: flex; justify-content: space-between; align-items: center;
         transition: all 0.3s ease;
     }
+
     .chat-input-area { display: flex; gap: 10px; margin-top: 15px; }
     .chat-input-area input { flex: 1; }
 </style>
 """
 
 # ===============================
-# 📄 MATRYCA TEMPLATÓW HTML WWW
+# HTML TEMPLATE
 # ===============================
 
 HTML_TEMPLATE = """
@@ -620,7 +647,7 @@ HTML_TEMPLATE = """
                         <div class="column is-narrow"><img src="${u.avatar}" style="width:80px; height:80px; border-radius:50%; border:2px solid var(--primary-glow); box-shadow: 0 0 15px var(--primary-glow);"></div>
                         <div class="column"><h3 class="title is-4 has-text-white mb-1 glow-text">${u.name}</h3><p class="is-size-7 has-text-grey-light">ID: ${u.id}</p></div>
                     </div>
-                    <div class="is-size-7 mb-4 p-3" style="background:rgba(0,0,0,0.15); border-radius:10pxPosition:relative;">
+                    <div class="is-size-7 mb-4 p-3" style="background:rgba(0,0,0,0.15); border-radius:10px; position:relative;">
                         <p>📅 Rejestracja: <span class="has-text-white">${u.created_at}</span></p>
                     </div>
                     <p class="label has-text-grey-light mb-2 is-size-7">AKTYWNE RANGI:</p>
@@ -637,9 +664,9 @@ HTML_TEMPLATE = """
         function fetchArchive() {
             const archiveDiv = document.getElementById('archive-list');
             fetch('/api/archive').then(res => res.json()).then(data => {
-                archiveDiv.innerHTML = ''; 
+                archiveDiv.innerHTML = '';
                 if(data.length === 0) { archiveDiv.innerHTML = '<p class="has-text-grey">Archiwum systemowe jest puste.</p>'; return; }
-                data.forEach((item, index) => {
+                data.forEach((item) => {
                     const div = document.createElement('div'); div.className = 'archive-item';
                     div.innerHTML = `<div><span class="has-text-grey-light">[${item.closed_at}]</span> <strong style="color: #fff;">#${item.channel_name}</strong> - Zamknięty przez: ${item.closed_by}</div>`;
                     archiveDiv.appendChild(div);
@@ -656,10 +683,11 @@ LOGIN_TEMPLATE = """
 <html>
 <head>
     <title>Kubusiowo - Autoryzacja Matrix</title>
+    <meta charset="utf-8">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
     {{ SHARED_STYLE | safe }}
     <style>
-        .login-box { max-width: 450px; margin: 15vh auto; p: 3rem; }
+        .login-box { max-width: 450px; margin: 15vh auto; padding: 3rem; }
     </style>
 </head>
 <body>
@@ -680,85 +708,93 @@ LOGIN_TEMPLATE = """
 """
 
 # ===============================
-# 🗺️ ARCHITEKTURA ENDPOINTÓW FLASK
+# FLASK
 # ===============================
 
 @app.before_request
 def require_login():
-    # Ignoruj sprawdzanie sesji dla endpointów logowania oraz assetów statycznych
-    if request.path in ['/login', '/logout'] or request.path.startswith('/api/'):
+    if request.path in ["/login", "/logout"] or request.path.startswith("/api/"):
         return
-    if 'authorized' not in session:
-        return redirect('/login')
+    if "authorized" not in session:
+        return redirect("/login")
 
-@app.route('/login', methods=['GET', 'POST'])
+@app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
-    if request.method == 'POST':
-        pwd = request.form.get('password')
+    if request.method == "POST":
+        pwd = request.form.get("password")
         if pwd == DASHBOARD_PASSWORD:
-            session['authorized'] = True
-            return redirect('/')
+            session["authorized"] = True
+            return redirect("/")
         error = "Błędny klucz kryptograficzny dostępu."
     return render_template_string(LOGIN_TEMPLATE, SHARED_STYLE=SHARED_STYLE, error=error)
 
-@app.route('/logout')
+@app.route("/logout")
 def logout():
-    session.pop('authorized', None)
-    return redirect('/login')
+    session.pop("authorized", None)
+    return redirect("/login")
 
-@app.route('/')
+@app.route("/")
 def index():
     return render_template_string(HTML_TEMPLATE, SHARED_STYLE=SHARED_STYLE, current_status=current_status_text)
 
-@app.route('/update-status', methods=['POST'])
+@app.route("/update-status", methods=["POST"])
 def update_status():
     global current_status_text
-    status_text = request.form.get('status_text', 'Zarządzanie serwerem')
+    status_text = request.form.get("status_text", "Zarządzanie serwerem")
     current_status_text = status_text
-    
-    # Bezpieczna zmiana statusu w pętli asynchronicznej discord.py
-    bot.loop.create_task(bot.change_presence(activity=discord.Game(name=status_text)))
-    return redirect('/')
 
-@app.route('/create-channel', methods=['POST'])
+    if bot.loop and bot.is_ready():
+        asyncio.run_coroutine_threadsafe(
+            bot.change_presence(activity=discord.Game(name=status_text)),
+            bot.loop
+        )
+    return redirect("/")
+
+@app.route("/create-channel", methods=["POST"])
 def create_channel():
-    ch_name = request.form.get('channel_name')
-    ch_type = request.form.get('channel_type')
-    
+    ch_name = request.form.get("channel_name")
+    ch_type = request.form.get("channel_type")
+
     async def _create():
-        # Pobieramy pierwszy dostępny serwer, na którym jest bot
         if bot.guilds:
             guild = bot.guilds[0]
-            if ch_type == 'text':
+            if ch_type == "text":
                 await guild.create_text_channel(name=ch_name)
-            elif ch_type == 'voice':
+            elif ch_type == "voice":
                 await guild.create_voice_channel(name=ch_name)
-    
-    bot.loop.create_task(_create())
-    return redirect('/')
 
-# --- REST API DLA WARSTWY JAVASCRIPT ---
+    if bot.loop and bot.is_ready():
+        asyncio.run_coroutine_threadsafe(_create(), bot.loop)
 
-@app.route('/api/tickets')
+    return redirect("/")
+
+@app.route("/close-ticket-dash", methods=["POST"])
+def close_ticket_dash():
+    return redirect("/")
+
+# ===============================
+# API
+# ===============================
+
+@app.route("/api/tickets")
 def api_tickets():
-    # Przykładowy pusty endpoint zwracający aktywne kanały zgłoszeń
     return jsonify([])
 
-@app.route('/api/chat/history/<int:channel_id>')
+@app.route("/api/chat/history/<int:channel_id>")
 def api_chat_history(channel_id):
     return jsonify([])
 
-@app.route('/api/chat/send', methods=['POST'])
+@app.route("/api/chat/send", methods=["POST"])
 def api_chat_send():
     return jsonify({"success": True})
 
-@app.route('/api/users')
+@app.route("/api/users")
 def api_users():
     users_list = []
     if bot.guilds:
         guild = bot.guilds[0]
-        for m in guild.members[:50]: # Zwracamy pierwszych 50 użytkowników
+        for m in list(guild.members)[:50]:
             users_list.append({
                 "id": str(m.id),
                 "name": m.name,
@@ -766,48 +802,39 @@ def api_users():
             })
     return jsonify(users_list)
 
-@app.route('/api/users/<int:user_id>')
+@app.route("/api/users/<int:user_id>")
 def api_user_detail(user_id):
     if not bot.guilds:
         return jsonify({"error": "Brak bazy danych serwera."})
-    
+
     guild = bot.guilds[0]
     member = guild.get_member(user_id)
     if not member:
         return jsonify({"error": "Użytkownik nieaktywny w sieci serwera."})
-    
+
     return jsonify({
         "id": str(member.id),
         "name": member.name,
         "avatar": str(member.display_avatar.url),
-        "created_at": member.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+        "created_at": member.created_at.strftime("%Y-%m-%d %H:%M:%S"),
         "roles": [r.name for r in member.roles if r.name != "@everyone"],
         "server_all_roles": [r.name for r in guild.roles if r.name != "@everyone"]
     })
 
-@app.route('/api/archive')
+@app.route("/api/archive")
 def api_archive():
     return jsonify(load_archive())
 
 # ===============================
-# 🚀 FUNKCJA URUCHOMIENIA FLASKA
+# FLASK WĄTEK
 # ===============================
 
-async def run_flask():
-    # Uruchomienie minimalistycznego serwera wbudowanego bezpośrednio na porcie Render (10000)
-    # Zamiast zewnętrznych modułów używamy natywnego app.run połączonego z pętlą asyncio
-    config = {
-        'host': '0.0.0.0',
-        'port': 10000,
-        'use_reloader': False,
-        'debug': False
-    }
-    # Flask blokuje wątek, więc odpalamy go w executorze asynchronicznym
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, lambda: app.run(**config))
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port, use_reloader=False, debug=False)
 
 # ===============================
-# 🏁 PUNKT WEJŚCIA SYSTEMU
+# START
 # ===============================
 
 if __name__ == "__main__":
@@ -815,4 +842,5 @@ if __name__ == "__main__":
     if not TOKEN:
         print("❌ BŁĄD: Brak zmiennej środowiskowej DISCORD_TOKEN!")
     else:
+        threading.Thread(target=run_flask, daemon=True).start()
         bot.run(TOKEN)
