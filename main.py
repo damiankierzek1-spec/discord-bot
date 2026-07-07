@@ -20,8 +20,6 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET", "super-tajny-klucz-kubusiowo")
 
 current_status_text = "Zarządzanie serwerem"
-ticket_data_cache = {}
-captcha_sessions = {}
 
 # ===============================
 # PLIKI
@@ -41,7 +39,7 @@ def save_whole_archive(archive_data):
         json.dump(archive_data, f, ensure_ascii=False, indent=4)
 
 # ===============================
-# BOT DISCORD
+# BOT
 # ===============================
 
 class ManagementBot(discord.Client):
@@ -54,12 +52,117 @@ class ManagementBot(discord.Client):
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
-        pass
+        self.add_view(TicketPanelView())
 
 bot = ManagementBot()
 
 # ===============================
-# KOMENDY SLASH
+# TICKETY
+# ===============================
+
+class TicketPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Otwórz ticket",
+        style=discord.ButtonStyle.green,
+        custom_id="kubusiowo:open_ticket_button"
+    )
+    async def open_ticket_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ To działa tylko na serwerze.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        guild = interaction.guild
+        user = interaction.user
+
+        category = discord.utils.get(guild.categories, name="TICKETY")
+        if category is None:
+            category = await guild.create_category("TICKETY")
+
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+            guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True)
+        }
+
+        channel_name = f"ticket-{user.name}".lower().replace(" ", "-")
+        ticket_channel = await guild.create_text_channel(
+            name=channel_name,
+            category=category,
+            overwrites=overwrites
+        )
+
+        embed = discord.Embed(
+            title="🎫 Ticket utworzony",
+            description=f"Cześć {user.mention}, opisz swój problem tutaj.",
+            color=discord.Color.blurple()
+        )
+        await ticket_channel.send(embed=embed)
+        await interaction.followup.send(f"✅ Ticket utworzony: {ticket_channel.mention}", ephemeral=True)
+
+ticket_group = app_commands.Group(name="ticket", description="Komendy związane z ticketami")
+
+@ticket_group.command(name="panel", description="Wysyła panel ticketów")
+@app_commands.describe(channel="Kanał, na który wysłać panel")
+async def ticket_panel(interaction: discord.Interaction, channel: discord.TextChannel):
+    if interaction.user.id not in ADMIN_IDS:
+        await interaction.response.send_message("❌ Brak uprawnień.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title="🎫 Panel Ticketów",
+        description="Kliknij przycisk poniżej, aby otworzyć ticket.",
+        color=discord.Color.blurple()
+    )
+    await channel.send(embed=embed, view=TicketPanelView())
+    await interaction.response.send_message(f"✅ Panel ticketów wysłany na {channel.mention}", ephemeral=True)
+
+@ticket_group.command(name="close", description="Zamyka aktualny ticket")
+async def ticket_close(interaction: discord.Interaction):
+    if not interaction.channel or not isinstance(interaction.channel, discord.TextChannel):
+        await interaction.response.send_message("❌ To nie jest kanał tekstowy.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        archive = load_archive()
+        archive.append({
+            "channel_name": interaction.channel.name,
+            "closed_by": str(interaction.user),
+            "closed_at": discord.utils.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        })
+        save_whole_archive(archive)
+
+        await interaction.followup.send("🔒 Ticket zostanie zamknięty za chwilę.", ephemeral=True)
+        await interaction.channel.delete()
+    except Exception as e:
+        await interaction.followup.send(f"❌ Błąd: {e}", ephemeral=True)
+
+@ticket_group.command(name="archive", description="Dodaje ticket do archiwum bez usuwania kanału")
+async def ticket_archive(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        archive = load_archive()
+        archive.append({
+            "channel_name": interaction.channel.name,
+            "closed_by": str(interaction.user),
+            "closed_at": discord.utils.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        })
+        save_whole_archive(archive)
+        await interaction.followup.send("📜 Ticket zapisany do archiwum.", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Błąd: {e}", ephemeral=True)
+
+bot.tree.add_command(ticket_group)
+
+# ===============================
+# SLASH KOMENDY
 # ===============================
 
 @bot.tree.command(name="sync", description="Synchronizuje komendy ukośnika z API Discorda (Tylko Admin)")
@@ -99,7 +202,7 @@ async def clear_messages(interaction: discord.Interaction, ilosc: int):
         deleted = await interaction.channel.purge(limit=ilosc)
         await interaction.followup.send(f"🗑️ Usunięto {len(deleted)} wiadomości.")
     except Exception as e:
-        await interaction.followup.send(f"❌ Błąd podczas czyszczenia: {e}")
+        await interaction.followup.send(f"❌ Błąd podczas czyszczenia: {e}", ephemeral=True)
 
 @bot.tree.command(name="ping", description="Test odpowiedzi bota")
 async def ping(interaction: discord.Interaction):
@@ -108,6 +211,7 @@ async def ping(interaction: discord.Interaction):
 @bot.event
 async def on_ready():
     print(f"⚡ Zalogowano jako {bot.user} | Gotowy na komendy /")
+    bot.add_view(TicketPanelView())
     await bot.change_presence(activity=discord.Game(name=current_status_text))
     try:
         synced = await bot.tree.sync()
@@ -122,145 +226,33 @@ async def on_ready():
 SHARED_STYLE = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
-
     :root {
         --bg-gradient: radial-gradient(circle at 50% 50%, #080512 0%, #020105 100%);
         --primary-glow: #5865f2;
-        --accent-neon: #00f2fe;
-        --danger-neon: #ff007f;
-        --warning-neon: #ffae00;
         --panel-bg: rgba(10, 7, 22, 0.55);
         --border-glow: rgba(88, 101, 242, 0.2);
     }
-
-    body {
-        font-family: 'Space Grotesk', sans-serif;
-        background: var(--bg-gradient);
-        color: #e2e8f0;
-        min-height: 100vh;
-        margin: 0;
-        overflow-x: hidden;
-        position: relative;
-    }
-
-    #space-canvas {
-        position: fixed;
-        top: 0; left: 0; width: 100vw; height: 100vh;
-        z-index: 0; pointer-events: none;
-    }
-
-    .animated-bg {
-        position: fixed;
-        top: 0; left: 0; width: 100vw; height: 100vh;
-        z-index: -1;
-        background: radial-gradient(circle at 15% 25%, rgba(88, 101, 242, 0.15) 0%, transparent 45%),
-                    radial-gradient(circle at 85% 75%, rgba(0, 242, 254, 0.1) 0%, transparent 50%),
-                    radial-gradient(circle at 50% 50%, rgba(255, 0, 127, 0.05) 0%, transparent 40%);
-        filter: blur(80px);
-        animation: pulseBackground 20s ease-in-out infinite alternate;
-    }
-
-    @keyframes pulseBackground {
-        0% { transform: scale(1) translate(0, 0); }
-        100% { transform: scale(1.1) translate(10px, -10px); }
-    }
-
+    body { font-family: 'Space Grotesk', sans-serif; background: var(--bg-gradient); color: #e2e8f0; min-height: 100vh; margin: 0; overflow-x: hidden; position: relative; }
+    #space-canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; pointer-events: none; }
+    .animated-bg { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -1; background: radial-gradient(circle at 15% 25%, rgba(88, 101, 242, 0.15) 0%, transparent 45%), radial-gradient(circle at 85% 75%, rgba(0, 242, 254, 0.1) 0%, transparent 50%), radial-gradient(circle at 50% 50%, rgba(255, 0, 127, 0.05) 0%, transparent 40%); filter: blur(80px); animation: pulseBackground 20s ease-in-out infinite alternate; }
+    @keyframes pulseBackground { 0% { transform: scale(1) translate(0, 0); } 100% { transform: scale(1.1) translate(10px, -10px); } }
     .dashboard-container { display: flex; min-height: 100vh; position: relative; z-index: 1; }
-
-    .sidebar {
-        width: 280px;
-        background: rgba(8, 5, 18, 0.75);
-        border-right: 1px solid var(--border-glow);
-        backdrop-filter: blur(30px);
-        padding: 2.5rem 1.5rem;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        box-shadow: 8px 0 35px rgba(0,0,0,0.6);
-        z-index: 2;
-    }
-
+    .sidebar { width: 280px; background: rgba(8, 5, 18, 0.75); border-right: 1px solid var(--border-glow); backdrop-filter: blur(30px); padding: 2.5rem 1.5rem; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 8px 0 35px rgba(0,0,0,0.6); z-index: 2; }
     .main-content { flex: 1; padding: 3rem; overflow-y: auto; height: 100vh; position: relative; z-index: 1; }
-
-    .menu-list a {
-        color: #8a8da4;
-        padding: 0.9rem 1.2rem;
-        border-radius: 12px;
-        margin-bottom: 0.6rem;
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        font-weight: 500;
-        border: 1px solid transparent;
-    }
-
-    .menu-list a:hover {
-        color: #fff;
-        background: rgba(255, 255, 255, 0.04);
-        transform: translateX(6px);
-        border-color: rgba(88, 101, 242, 0.2);
-        box-shadow: 0 0 15px rgba(88, 101, 242, 0.1);
-    }
-
-    .menu-list a.is-active {
-        background: linear-gradient(90deg, rgba(88, 101, 242, 0.25) 0%, rgba(88, 101, 242, 0.02) 100%);
-        color: #fff;
-        border-left: 4px solid var(--primary-glow);
-        padding-left: 14px;
-        text-shadow: 0 0 15px rgba(88, 101, 242, 0.6);
-        border-color: rgba(88, 101, 242, 0.3);
-    }
-
-    .glass-box {
-        background: var(--panel-bg);
-        border: 1px solid var(--border-glow);
-        border-radius: 20px;
-        backdrop-filter: blur(20px);
-        box-shadow: 0 20px 45px rgba(0, 0, 0, 0.5);
-    }
-
-    .glow-text {
-        color: #fff;
-        text-shadow: 0 0 15px rgba(88, 101, 242, 0.8), 0 0 30px rgba(88, 101, 242, 0.3);
-    }
-
-    .btn-glow {
-        background: linear-gradient(135deg, #6c7fff, #5865f2);
-        color: white;
-        border: none;
-        font-weight: 600;
-        border-radius: 10px;
-    }
-
-    .btn-danger-glow {
-        background: linear-gradient(135deg, #ff4757, #ff0055);
-        color: white;
-        border: none;
-        font-weight: 600;
-        border-radius: 10px;
-    }
-
-    .custom-input, .custom-select select {
-        background: rgba(5, 3, 10, 0.6) !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        color: #fff !important;
-        border-radius: 10px !important;
-    }
-
+    .menu-list a { color: #8a8da4; padding: 0.9rem 1.2rem; border-radius: 12px; margin-bottom: 0.6rem; display: flex; align-items: center; gap: 14px; transition: all 0.3s ease; font-weight: 500; border: 1px solid transparent; }
+    .menu-list a.is-active { background: rgba(88, 101, 242, 0.25); color: #fff; }
+    .glass-box { background: var(--panel-bg); border: 1px solid var(--border-glow); border-radius: 20px; backdrop-filter: blur(20px); box-shadow: 0 20px 45px rgba(0, 0, 0, 0.5); }
+    .glow-text { color: #fff; text-shadow: 0 0 15px rgba(88, 101, 242, 0.8), 0 0 30px rgba(88, 101, 242, 0.3); }
+    .btn-glow { background: linear-gradient(135deg, #6c7fff, #5865f2); color: white; border: none; font-weight: 600; border-radius: 10px; }
+    .btn-danger-glow { background: linear-gradient(135deg, #ff4757, #ff0055); color: white; border: none; font-weight: 600; border-radius: 10px; }
+    .custom-input, .custom-select select { background: rgba(5, 3, 10, 0.6) !important; border: 1px solid rgba(255, 255, 255, 0.08) !important; color: #fff !important; border-radius: 10px !important; }
     .tab-content { display: none; }
     .tab-content.is-active { display: block; }
-
-    .live-pulse-dot {
-        width: 10px; height: 10px; background: #00ffa3; border-radius: 50%; display: inline-block;
-        margin-right: 8px;
-    }
-
+    .live-pulse-dot { width: 10px; height: 10px; background: #00ffa3; border-radius: 50%; display: inline-block; margin-right: 8px; }
     .chat-container { display: flex; height: 650px; gap: 25px; }
     .chat-channels-list { width: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
     .chat-channel-item { padding: 14px; border-radius: 12px; cursor: pointer; background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.04); }
     .chat-channel-item.active { background: rgba(88,101,242,0.25); border-color: var(--primary-glow); color: #fff; }
-
     .chat-window { flex: 1; display: flex; flex-direction: column; height: 100%; }
     .chat-messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; background: rgba(0,0,0,0.3); border-radius: 16px; }
     .chat-msg-row { display: flex; flex-direction: column; max-width: 70%; padding: 10px 15px; border-radius: 14px; }
@@ -268,27 +260,15 @@ SHARED_STYLE = """
     .chat-msg-row.user { background: rgba(255, 255, 255, 0.04); align-self: flex-start; }
     .chat-msg-author { font-size: 0.8rem; font-weight: 600; color: #a0aec0; margin-bottom: 4px; }
     .chat-msg-time { font-size: 0.65rem; color: #5a6578; align-self: flex-end; margin-top: 6px; }
-
     .user-split { display: flex; gap: 25px; height: 700px; }
     .user-list-side { width: 320px; display: flex; flex-direction: column; gap: 12px; }
     .user-scroll-area { flex: 1; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 16px; }
     .user-list-item { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 10px; cursor: pointer; margin-bottom: 8px; }
     .user-list-item.active { background: rgba(88, 101, 242, 0.15); }
-
     .user-list-item img { width: 36px; height: 36px; border-radius: 50%; }
     .user-profile-side { flex: 1; background: rgba(255,255,255,0.015); border: 1px solid rgba(255,255,255,0.04); padding: 30px; border-radius: 20px; overflow-y: auto; }
-
-    .role-tag {
-        display: inline-block; background: rgba(88,101,242,0.12); border: 1px solid rgba(88,101,242,0.4);
-        color: #babcff; padding: 3px 10px; border-radius: 6px; font-size: 0.78rem; margin: 4px;
-    }
-
-    .ticket-badge, .archive-item {
-        background: rgba(255, 255, 255, 0.01); border: 1px solid rgba(255, 255, 255, 0.04);
-        padding: 16px 24px; border-radius: 14px; margin-bottom: 14px;
-        display: flex; justify-content: space-between; align-items: center;
-    }
-
+    .role-tag { display: inline-block; background: rgba(88,101,242,0.12); border: 1px solid rgba(88,101,242,0.4); color: #babcff; padding: 3px 10px; border-radius: 6px; font-size: 0.78rem; margin: 4px; }
+    .ticket-badge, .archive-item { background: rgba(255, 255, 255, 0.01); border: 1px solid rgba(255, 255, 255, 0.04); padding: 16px 24px; border-radius: 14px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; }
     .chat-input-area { display: flex; gap: 10px; margin-top: 15px; }
     .chat-input-area input { flex: 1; }
 </style>
@@ -298,7 +278,8 @@ SHARED_STYLE = """
 # HTML
 # ===============================
 
-HTML_TEMPLATE = """<!DOCTYPE html>
+HTML_TEMPLATE = """
+<!DOCTYPE html>
 <html>
 <head>
     <title>Kubusiowo - Panel VIP</title>
@@ -389,8 +370,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                                 <p class="has-text-grey" style="margin:auto;">Wybierz aktywny strumień kanału z listy obok.</p>
                             </div>
                             <div class="chat-input-area">
-                                <input type="text" id="chat-input-msg" class="input custom-input" placeholder="Napisz coś jako bot na kanale..." disabled onkeydown="if(event.key==='Enter') sendWebMessage()">
-                                <button id="chat-send-btn" class="button btn-glow" disabled onclick="sendWebMessage()">Wyślij</button>
+                                <input type="text" id="chat-input-msg" class="input custom-input" placeholder="Napisz coś jako bot na kanale..." disabled>
+                                <button id="chat-send-btn" class="button btn-glow" disabled>Wyślij</button>
                             </div>
                         </div>
                     </div>
@@ -420,11 +401,9 @@ function switchTab(evt, tabId) {
 function fetchTickets() { fetch('/api/tickets').then(r=>r.json()).then(data=>{ document.getElementById('tickets-list').innerHTML = data.length ? data.map(t=>`<div class="ticket-badge"><strong>#${t.name}</strong></div>`).join('') : '<p class="has-text-grey-light">Brak otwartych procesów zgłoszeniowych.</p>'; }); }
 function fetchChatChannels() { fetch('/api/tickets').then(r=>r.json()).then(data=>{ document.getElementById('chat-channels').innerHTML = data.length ? data.map(t=>`<div class="chat-channel-item" onclick="selectChatChannel(${t.id})">#${t.name}</div>`).join('') : '<p class="has-text-grey is-size-7">Brak otwartych kanałów.</p>'; }); }
 function selectChatChannel(channelId) { document.getElementById('chat-input-msg').disabled = false; document.getElementById('chat-send-btn').disabled = false; }
-function sendWebMessage() {}
-let allUsersData = [];
-function fetchUsers() { fetch('/api/users').then(r=>r.json()).then(data=>{ allUsersData = data; renderUsersList(data); }); }
+function fetchUsers() { fetch('/api/users').then(r=>r.json()).then(data=>{ window.allUsersData = data; renderUsersList(data); }); }
 function renderUsersList(users) { document.getElementById('user-scroll-container').innerHTML = users.length ? users.map(u=>`<div class="user-list-item" onclick="selectUser(${u.id})"><img src="${u.avatar}"><span>${u.name}</span></div>`).join('') : '<p class="has-text-grey is-size-7 p-2">Brak użytkowników.</p>'; }
-function filterUsers() { const q = document.getElementById('user-search-input').value.toLowerCase().trim(); renderUsersList(allUsersData.filter(u => u.name.toLowerCase().includes(q))); }
+function filterUsers() { const q = document.getElementById('user-search-input').value.toLowerCase().trim(); renderUsersList((window.allUsersData || []).filter(u => u.name.toLowerCase().includes(q))); }
 function selectUser(userId) { fetch(`/api/users/${userId}`).then(r=>r.json()).then(u=>{ document.getElementById('user-profile').innerHTML = u.error ? `<p class="has-text-danger">${u.error}</p>` : `<h3 class="title is-4 has-text-white">${u.name}</h3><p>ID: ${u.id}</p>`; }); }
 function fetchArchive() { fetch('/api/archive').then(r=>r.json()).then(data=>{ document.getElementById('archive-list').innerHTML = data.length ? data.map(item=>`<div class="archive-item"><div><strong>#${item.channel_name}</strong></div></div>`).join('') : '<p class="has-text-grey">Archiwum systemowe jest puste.</p>'; }); }
 </script>
@@ -461,7 +440,7 @@ LOGIN_TEMPLATE = """
 """
 
 # ===============================
-# FLASK ROUTES
+# FLASK
 # ===============================
 
 @app.before_request
@@ -564,16 +543,12 @@ def api_archive():
     return jsonify(load_archive())
 
 # ===============================
-# FLASK START
+# START
 # ===============================
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
-
-# ===============================
-# START
-# ===============================
 
 if __name__ == "__main__":
     TOKEN = os.environ.get("DISCORD_TOKEN")
