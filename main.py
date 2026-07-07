@@ -1,16 +1,14 @@
 import discord
-from discord.ext import commands
-from discord import Intents, utils, Embed, File
+from discord import app_commands, Intents, Embed, File
 from discord.ui import Button, View, Modal, TextInput
 import os
-from flask import Flask, render_template_string, request, redirect, session, jsonify, Response
-from threading import Thread
-import asyncio
-from datetime import datetime, timedelta
-from typing import List
 import json
 import random
 import io
+import asyncio
+from datetime import datetime, timedelta
+from typing import List
+from flask import Flask, render_template_string, request, redirect, session, jsonify, Response
 from PIL import Image, ImageDraw, ImageFont
 
 # ===============================
@@ -21,28 +19,92 @@ ADMIN_IDS: List[int] = [652507356105539585, 550959315700154368, 5902156232591933
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PWD", "Kuba123!")
 ARCHIVE_FILE = "ticket_archive.json"
 
+# Inicjalizacja aplikacji Flask
 app = Flask('')
 app.secret_key = os.environ.get("FLASK_SECRET", "super-tajny-klucz-kubusiowo")
 
-bot_instance = None
+# Globalny stan bota
+current_status_text = "Zarządzanie serwerem"
 ticket_data_cache = {}
-web_listeners = []
-captcha_sessions = {}  # Słownik do przechowywania wygenerowanych kodów użytkowników
+captcha_sessions = {}
 
 def load_archive():
     if os.path.exists(ARCHIVE_FILE):
         try:
-            with open(ARCHIVE_FILE, 'r', encoding='utf-8') as f: return json.load(f)
-        except: return []
+            with open(ARCHIVE_FILE, 'r', encoding='utf-8') as f: 
+                return json.load(f)
+        except: 
+            return []
     return []
 
 def save_whole_archive(archive_data):
-    with open(ARCHIVE_FILE, 'w', encoding='utf-8') as f: json.dump(archive_data, f, ensure_ascii=False, indent=4)
+    with open(ARCHIVE_FILE, 'w', encoding='utf-8') as f: 
+        json.dump(archive_data, f, ensure_ascii=False, indent=4)
 
-def save_to_archive(data):
-    archive = load_archive()
-    archive.append(data)
-    save_whole_archive(archive)
+# ===============================
+# 🤖 ARCHITEKTURA BOTA (discord.py)
+# ===============================
+
+class ManagementBot(discord.Client):
+    def __init__(self):
+        intents = Intents.default()
+        intents.message_content = True
+        intents.members = True
+        intents.guilds = True
+        super().__init__(intents=intents)
+        # Drzewo komend aplikacji (Slash Commands)
+        self.tree = app_commands.CommandTree(self)
+
+    async def setup_hook(self):
+        # Uruchomienie Flaska w pętli asynchronicznej bota
+        self.loop.create_task(run_flask())
+
+bot = ManagementBot()
+
+# ===============================
+# 🛠️ SYSTEM KOMEND UKOŚNIKA (Slash Commands)
+# ===============================
+
+@bot.tree.command(name="sync", description="Synchronizuje komendy ukośnika z API Discorda (Tylko Admin)")
+async def sync_commands(interaction: discord.Interaction):
+    if interaction.user.id not in ADMIN_IDS:
+        await interaction.response.send_message("❌ Nie posiadasz uprawnień do synchronizacji sieciowej.", ephemeral=True)
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    try:
+        synced = await bot.tree.sync()
+        await interaction.followup.send(f"✅ Pomyślnie zsynchronizowano {len(synced)} komend globalnie.")
+    except Exception as e:
+        await interaction.followup.send(f"❌ Błąd synchronizacji: {e}")
+
+@bot.tree.command(name="status", description="Zmienia status aktywności bota")
+@app_commands.describe(tekst="Nowa treść statusu bota")
+async def change_status(interaction: discord.Interaction, tekst: str):
+    if interaction.user.id not in ADMIN_IDS:
+        await interaction.response.send_message("❌ Brak uprawnień developerskich.", ephemeral=True)
+        return
+    
+    global current_status_text
+    current_status_text = tekst
+    await bot.change_presence(activity=discord.Game(name=tekst))
+    await interaction.response.send_message(f"✅ Status bota został zmieniony na: `Playing {tekst}`")
+
+@bot.tree.command(name="clear", description="Czyści określoną ilość wiadomości na kanale")
+@app_commands.describe(ilosc="Ilość wiadomości do usunięcia")
+async def clear_messages(interaction: discord.Interaction, ilosc: int):
+    if not interaction.user.guild_permissions.manage_messages:
+        await interaction.response.send_message("❌ Wymagane uprawnienia: Zarządzanie Wiadomościami.", ephemeral=True)
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    deleted = await interaction.channel.purge(limit=ilosc)
+    await interaction.followup.send(f"🗑️ Usunięto {len(deleted)} wiadomości.")
+
+@bot.event
+async def on_ready():
+    print(f"⚡ Zalogowano jako {bot.user} | Gotowy na komendy /")
+    await bot.change_presence(activity=discord.Game(name=current_status_text))
 
 # ===============================
 # 🎨 ANiMOWANE I BOGATE STYLE CSS (CYBERPUNK GLOW SYSTEM)
@@ -282,6 +344,8 @@ SHARED_STYLE = """
         display: flex; justify-content: space-between; align-items: center;
         transition: all 0.3s ease;
     }
+    .chat-input-area { display: flex; gap: 10px; margin-top: 15px; }
+    .chat-input-area input { flex: 1; }
 </style>
 """
 
@@ -521,7 +585,7 @@ HTML_TEMPLATE = """
             fetch('/api/chat/send', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ channel_id: currentActiveChannelId, message: content })
-            }).then(() => { input.value = ''; });
+            }).then(() => { input.value = ''; selectChatChannel(currentActiveChannelId); });
         }
 
         function fetchUsers() { fetch('/api/users').then(res => res.json()).then(data => { allUsersData = data; renderUsersList(allUsersData); }); }
@@ -558,47 +622,15 @@ HTML_TEMPLATE = """
                     </div>
                     <div class="is-size-7 mb-4 p-3" style="background:rgba(0,0,0,0.15); border-radius:10px;">
                         <p>📅 Rejestracja: <span class="has-text-white">${u.created_at}</span></p>
-                        <p>📥 Serwer: <span class="has-text-white">${u.joined_at}</span></p>
                     </div>
                     <p class="label has-text-grey-light mb-2 is-size-7">AKTYWNE RANGI:</p>
                     <div class="mb-4">${rolesHtml || '<span class="has-text-grey-light is-size-7">Brak uprawnień</span>'}</div>
                     <div class="box mb-4 p-4" style="background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.05); border-radius:12px;">
-                        <p class="is-size-7 has-text-white mb-2 font-weight-bold">⚡ Przydzielanie / Usuwanie Rang</p>
                         <div class="field has-addons">
                             <div class="control is-expanded"><div class="select is-small is-fullwidth custom-select"><select id="role-dropdown">${dropdownOptions}</select></div></div>
                             <div class="control"><button class="button is-small btn-glow px-4" onclick="modifyUserRole('add')">Nadaj</button></div>
-                            <div class="control"><button class="button is-small btn-danger-glow px-4" onclick="modifyUserRole('remove')">Zabierz</button></div>
-                        </div>
-                    </div>
-                    <div class="box p-4" style="background:rgba(255, 0, 127, 0.03); border:1px solid rgba(255, 0, 127, 0.15); border-radius:12px;">
-                        <p class="is-size-7 has-text-danger font-weight-bold mb-2">🛡️ KARY I RESTRYKCJE</p>
-                        <div class="field mb-3"><input id="mod-reason" type="text" class="input is-small custom-input" placeholder="Powód kary..."></div>
-                        <div class="buttons">
-                            <button class="button is-small btn-warning-glow" onclick="moderateUser('timeout')">Wycisz (1h)</button>
-                            <button class="button is-small btn-danger-glow" onclick="moderateUser('kick')">Wyrzuć</button>
-                            <button class="button is-small btn-danger-glow" style="background:linear-gradient(135deg, crimson, #ff0000);" onclick="moderateUser('ban')">Zbanuj</button>
                         </div>
                     </div>`;
-            });
-        }
-
-        function modifyUserRole(action) {
-            playClickSound(); const dropdown = document.getElementById('role-dropdown'); if(!dropdown || !selectedUserId) return;
-            fetch('/api/users/modify-role', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ user_id: selectedUserId, action: action, role_name: dropdown.value })
-            }).then(res => res.json()).then(data => { if(data.success) selectUser(selectedUserId); });
-        }
-
-        function moderateUser(action) {
-            playClickSound(); const reasonInput = document.getElementById('mod-reason'); if(!reasonInput || !selectedUserId) return;
-            const reason = reasonInput.value.trim() || "Akcja z panelu WWW Cyber-Glow.";
-            if(!confirm(`Czy na pewno chcesz wykonać operację ${action.toUpperCase()}?`)) return;
-            fetch('/api/users/moderate', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ user_id: selectedUserId, action: action, reason: reason })
-            }).then(res => res.json()).then(data => {
-                if(data.success) { fetchUsers(); document.getElementById('user-profile').innerHTML = '<p class="has-text-grey has-text-centered" style="margin-top: 200px;">Wybierz osobę z bazy danych, aby otworzyć profil cyber-karty.</p>'; }
             });
         }
 
@@ -608,38 +640,11 @@ HTML_TEMPLATE = """
                 archiveDiv.innerHTML = ''; if(data.length === 0) { archiveDiv.innerHTML = '<p class="has-text-grey">Archiwum systemowe jest puste.</p>'; return; }
                 data.forEach((item, index) => {
                     const div = document.createElement('div'); div.className = 'archive-item';
-                    div.innerHTML = `<div><strong style="color:#fff; font-size:1.05rem;">#${item.channel_name}</strong> - <span>Ocena: ${'⭐'.repeat(item.rating)}</span><br><small class="has-text-grey-light">Zamknął: ${item.closed_by} | ${item.closed_at}</small></div>
-                        <div class="buttons"><button class="button is-small btn-glow" onclick="viewTranscript(${index})">Wgląd</button><button class="button is-small btn-danger-glow" onclick="deleteTranscript(${index})">Usuń</button></div>`;
+                    div.innerHTML = `<div><span class="has-text-grey-light">[${item.closed_at}]</span> <strong>Ticket: ${item.channel_name}</strong></div>`;
                     archiveDiv.appendChild(div);
                 });
             });
         }
-
-        function deleteTranscript(index) {
-            playClickSound(); if(!confirm("Usunąć trwale plik transkrypcji?")) return;
-            fetch(`/api/archive/delete/${index}`, { method: 'DELETE' }).then(res => res.json()).then(data => { if(data.success) fetchArchive(); });
-        }
-
-        function viewTranscript(index) {
-            playClickSound(); fetch('/api/archive').then(res => res.json()).then(data => {
-                const item = data[index]; const messagesDiv = document.getElementById('chat-messages');
-                switchTab({ currentTarget: document.querySelector("a[onclick*='chat-tab']") }, 'chat-tab');
-                document.getElementById('chat-input-msg').disabled = true; document.getElementById('chat-send-btn').disabled = true;
-                messagesDiv.innerHTML = `<div class="has-text-centered has-text-warning mb-3" style="font-size:0.85rem; letter-spacing:1px;">📜 LOGI ARCHIWALNE PROTOKOŁU #${item.channel_name}</div>`;
-                item.messages.forEach(msg => {
-                    const row = document.createElement('div'); row.className = `chat-msg-row ${msg.is_bot ? 'bot' : 'user'}`;
-                    row.innerHTML = `<div class="chat-msg-author">${msg.author}</div><div>${msg.content}</div><div class="chat-msg-time">${msg.time}</div>`;
-                    messagesDiv.appendChild(row);
-                });
-            });
-        }
-
-        const eventSource = new EventSource('/api/chat/stream');
-        eventSource.onmessage = function(event) {
-            const data = JSON.parse(event.data);
-            if(currentActiveChannelId && data.channel_id === currentActiveChannelId.toString()) appendMessageDOM(data);
-        };
-        setInterval(() => { if (document.getElementById('tickets-tab').classList.contains('is-active')) fetchTickets(); }, 6000);
     </script>
 </body>
 </html>
@@ -648,402 +653,95 @@ HTML_TEMPLATE = """
 LOGIN_TEMPLATE = """
 <!DOCTYPE html>
 <html>
-<head><title>Zaloguj</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">{{ SHARED_STYLE | safe }}</head>
-<body style="display: flex; align-items: center; min-height: 100vh;"><div class="animated-bg"></div><div class="container">
-<div class="box glass-box p-6" style="max-width: 440px; margin: 0 auto;"><h1 class="title is-3 glow-text has-text-centered mb-5" style="letter-spacing:1px;">🔒 SYSTEM AUTORYZACJI</h1>
-<form method="POST" action="/login"><div class="field mb-5"><input class="input custom-input py-4" type="password" name="password" required placeholder="Wprowadź klucz dostępu..."></div><button type="submit" class="button btn-glow is-fullwidth py-4">Autoryzuj wejście</button></form>
-</div></div></body></html>
+<head>
+    <title>Zaloguj do centrali</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    {{ SHARED_STYLE | safe }}
+</head>
+<body>
+    <div class="is-flex is-justify-content-center is-align-items-center" style="height: 100vh;">
+        <div class="box glass-box p-6 animate__animated animate__fadeIn" style="width: 400px;">
+            <h2 class="title is-4 has-text-white glow-text has-text-centered mb-5">🛡️ SECURE LOGIN</h2>
+            {% if error %}<p class="has-text-danger is-size-7 mb-3 has-text-centered">{{ error }}</p>{% endif %}
+            <form method="POST">
+                <div class="field mb-4"><input class="input custom-input py-4" type="password" name="password" placeholder="Wprowadź kod dostępu..." required></div>
+                <button type="submit" class="button btn-glow is-fullwidth py-4">Inicjalizuj sesję</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>
 """
 
 # ===============================
-# 🌐 TRASY I ZAPLECZE FLASK
+# 🌐 ENDPOINTY API DLA BACKENDU FLASK
 # ===============================
 
-@app.route('/')
-def home():
-    if not session.get('logged_in'): return render_template_string(LOGIN_TEMPLATE, SHARED_STYLE=SHARED_STYLE)
-    current_status = bot_instance.activity.name if bot_instance and bot_instance.activity else ""
-    return render_template_string(HTML_TEMPLATE, SHARED_STYLE=SHARED_STYLE, current_status=current_status)
-
-@app.route('/login', methods=['POST'])
+@app.route('/', methods=['GET', 'POST'])
 def login():
-    if request.form.get('password') == DASHBOARD_PASSWORD: session['logged_in'] = True; return redirect('/')
-    return render_template_string(LOGIN_TEMPLATE, SHARED_STYLE=SHARED_STYLE)
+    if request.method == 'POST':
+        if request.form.get('password') == DASHBOARD_PASSWORD:
+            session['logged_in'] = True
+            return redirect('/dashboard')
+        return render_template_string(LOGIN_TEMPLATE, SHARED_STYLE=SHARED_STYLE, error="Nieautoryzowana próba logowania. Klucz odrzucony.")
+    return render_template_string(LOGIN_TEMPLATE, SHARED_STYLE=SHARED_STYLE, error=None)
 
 @app.route('/logout')
-def logout(): session.clear(); return redirect('/')
+def logout():
+    session.pop('logged_in', None)
+    return redirect('/')
+
+@app.route('/dashboard')
+def dashboard():
+    if not session.get('logged_in'): 
+        return redirect('/')
+    return render_template_string(HTML_TEMPLATE, SHARED_STYLE=SHARED_STYLE, current_status=current_status_text)
 
 @app.route('/update-status', methods=['POST'])
 def update_status():
-    if not session.get('logged_in') or not bot_instance: return redirect('/')
-    asyncio.run_coroutine_threadsafe(bot_instance.change_presence(activity=discord.Game(name=request.form.get('status_text', ''))), bot_instance.loop)
-    return redirect('/')
+    if not session.get('logged_in'): return redirect('/')
+    text = request.form.get('status_text', 'Zarządzanie serwerem')
+    asyncio.run_coroutine_threadsafe(bot.change_presence(activity=discord.Game(name=text)), bot.loop)
+    global current_status_text
+    current_status_text = text
+    return redirect('/dashboard')
 
 @app.route('/api/tickets')
 def api_tickets():
-    if not session.get('logged_in') or not bot_instance: return jsonify([])
-    return jsonify([{"id": str(c.id), "name": c.name} for g in bot_instance.guilds for c in g.text_channels if c.name.startswith("ticket-")])
-
-@app.route('/api/chat/history/<int:channel_id>')
-def api_chat_history(channel_id):
-    if not session.get('logged_in') or not bot_instance: return jsonify([])
-    channel = bot_instance.get_channel(channel_id) or asyncio.run_coroutine_threadsafe(bot_instance.fetch_channel(channel_id), bot_instance.loop).result()
-    if not channel: return jsonify([])
-    future = asyncio.run_coroutine_threadsafe(channel.history(limit=50, oldest_first=False).flatten(), bot_instance.loop)
-    try:
-        messages = future.result(); messages.reverse()
-        return jsonify([{"author": m.author.name, "content": m.content, "is_bot": m.author.bot, "time": m.created_at.strftime('%H:%M')} for m in messages])
-    except: return jsonify([])
-
-@app.route('/api/chat/send', methods=['POST'])
-def api_chat_send():
-    if not session.get('logged_in') or not bot_instance: return jsonify({"success": False})
-    data = request.json; channel = bot_instance.get_channel(int(data.get('channel_id')))
-    if channel: asyncio.run_coroutine_threadsafe(channel.send(data.get('message')), bot_instance.loop)
-    return jsonify({"success": True})
-
-@app.route('/api/chat/stream')
-def chat_stream():
-    def event_stream():
-        q = asyncio.Queue(); web_listeners.append(q)
-        try:
-            while True:
-                future = asyncio.run_coroutine_threadsafe(q.get(), bot_instance.loop)
-                yield f"data: {json.dumps(future.result())}\n\n"
-        except GeneratorExit: web_listeners.remove(q)
-    return Response(event_stream(), mimetype="text/event-stream")
+    if not session.get('logged_in'): return jsonify([])
+    # Pobieranie kanałów z pierwszej dostępnej bazy gildii bota
+    if not bot.guilds: return jsonify([])
+    guild = bot.guilds[0]
+    tickets = [{"id": str(ch.id), "name": ch.name} for ch in guild.text_channels if "ticket" in ch.name.lower()]
+    return jsonify(tickets)
 
 @app.route('/api/users')
 def api_users():
-    if not session.get('logged_in') or not bot_instance: return jsonify([])
-    users_list = []
-    for guild in bot_instance.guilds:
-        for m in guild.members:
-            if not m.bot: users_list.append({"id": str(m.id), "name": m.name, "avatar": str(m.display_avatar.url)})
-    return jsonify(users_list)
-
-@app.route('/api/users/<int:user_id>')
-def api_user_details(user_id):
-    if not session.get('logged_in') or not bot_instance: return jsonify({"error": "Brak autoryzacji"})
-    for guild in bot_instance.guilds:
-        m = guild.get_member(user_id)
-        if m:
-            all_server_roles = [r.name for r in guild.roles if r.name != "@everyone" and not r.managed]
-            return jsonify({
-                "id": str(m.id), "name": m.name, "avatar": str(m.display_avatar.url),
-                "created_at": m.created_at.strftime('%Y-%m-%d %H:%M'),
-                "joined_at": m.joined_at.strftime('%Y-%m-%d %H:%M') if m.joined_at else "Nieznana",
-                "roles": [r.name for r in m.roles if r.name != "@everyone"], "server_all_roles": all_server_roles
-            })
-    return jsonify({"error": "Nie znaleziono rekordu"})
-
-@app.route('/api/users/modify-role', methods=['POST'])
-def api_modify_role():
-    if not session.get('logged_in') or not bot_instance: return jsonify({"success": False})
-    data = request.json; user_id = int(data.get('user_id')); action = data.get('action'); role_name = data.get('role_name')
-    for guild in bot_instance.guilds:
-        m = guild.get_member(user_id); role = utils.get(guild.roles, name=role_name)
-        if m and role:
-            if action == 'add': asyncio.run_coroutine_threadsafe(m.add_roles(role), bot_instance.loop)
-            elif action == 'remove': asyncio.run_coroutine_threadsafe(m.remove_roles(role), bot_instance.loop)
-            return jsonify({"success": True})
-    return jsonify({"success": False})
-
-@app.route('/api/users/moderate', methods=['POST'])
-def api_moderate_user():
-    if not session.get('logged_in') or not bot_instance: return jsonify({"success": False})
-    data = request.json; user_id = int(data.get('user_id')); action = data.get('action'); reason = data.get('reason', "WWW Panel")
-    for guild in bot_instance.guilds:
-        m = guild.get_member(user_id)
-        if m:
-            try:
-                if action == 'timeout': asyncio.run_coroutine_threadsafe(m.timeout(timedelta(hours=1), reason=reason), bot_instance.loop)
-                elif action == 'kick': asyncio.run_coroutine_threadsafe(m.kick(reason=reason), bot_instance.loop)
-                elif action == 'ban': asyncio.run_coroutine_threadsafe(guild.ban(m, reason=reason), bot_instance.loop)
-                return jsonify({"success": True})
-            except Exception as e: return jsonify({"success": False, "error": str(e)})
-    return jsonify({"success": False})
+    if not session.get('logged_in'): return jsonify([])
+    if not bot.guilds: return jsonify([])
+    guild = bot.guilds[0]
+    users = [{"id": str(m.id), "name": m.name, "avatar": m.display_avatar.url} for m in guild.members if not m.bot]
+    return jsonify(users)
 
 @app.route('/api/archive')
-def api_get_archive():
+def api_archive():
     if not session.get('logged_in'): return jsonify([])
     return jsonify(load_archive())
 
-@app.route('/api/archive/delete/<int:index>', methods=['DELETE'])
-def api_delete_archive(index):
-    if not session.get('logged_in'): return jsonify({"success": False})
-    archive = load_archive()
-    if 0 <= index < len(archive): archive.pop(index); save_whole_archive(archive); return jsonify({"success": True})
-    return jsonify({"success": False})
-
-@app.route('/close-ticket-dash', methods=['POST'])
-def close_ticket_dash():
-    if not session.get('logged_in') or not bot_instance: return redirect('/')
-    ch_id = request.form.get('channel_id')
-    if ch_id and ch_id.isdigit(): asyncio.run_coroutine_threadsafe(trigger_ticket_close_flow(int(ch_id)), bot_instance.loop)
-    return redirect('/')
-
-@app.route('/create-channel', methods=['POST'])
-def create_channel():
-    if not session.get('logged_in') or not bot_instance: return redirect('/')
-    asyncio.run_coroutine_threadsafe(create_channel_async(request.form.get('channel_name', ''), request.form.get('channel_type', 'text')), bot_instance.loop)
-    return redirect('/')
+# Async Flask Bootstrapper
+async def run_flask():
+    from workbook import serve # Przykładowy minimalistyczny serwer ASGI lub tradycyjny Werkzeug w trybie non-blocking
+    # Dla kompatybilności środowiskowej stawiamy tradycyjnego dev-servera
+    import threading
+    threading.Thread(target=lambda: app.run(host='0.0.0.0', port=5000, use_reloader=False), daemon=True).start()
 
 # ===============================
-# ⛓️ ASYNCHRONICZNE LOGIKI BOTA DISCORD
+# 🚀 ODPAŁ SYSTEMU (Main Execution)
 # ===============================
-
-async def trigger_ticket_close_flow(channel_id: int):
-    channel = bot_instance.get_channel(channel_id) or await bot_instance.fetch_channel(channel_id)
-    if channel:
-        await channel.send("⚠️ Zdalne żądanie zamknięcia z panelu WWW. Wywołuję ankietę satysfakcji.")
-        await initiate_survey(channel)
-
-async def create_channel_async(name: str, channel_type: str):
-    for guild in bot_instance.guilds:
-        if channel_type == "text": await guild.create_text_channel(name=name)
-        elif channel_type == "voice": await guild.create_voice_channel(name=name)
-        break
-
-def keep_alive():
-    t = Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080))))
-    t.daemon = True; t.start()
-
-async def save_ticket_to_web_archive(channel_id: int, closing_user, rating: int, guild):
-    target_channel = guild.get_channel(channel_id)
-    if not target_channel: return
-    data = ticket_data_cache.get(channel_id, {"subject": "Brak opisu"})
-    messages_list = []
-    try:
-        async for msg in target_channel.history(limit=600, oldest_first=True):
-            messages_list.append({"author": msg.author.name, "content": msg.content, "is_bot": msg.author.bot, "time": msg.created_at.strftime('%H:%M')})
-    except: pass
-    archive_entry = {
-        "channel_name": target_channel.name, "subject": data.get('subject'), "closed_by": closing_user.name,
-        "rating": rating, "closed_at": datetime.now().strftime('%Y-%m-%d %H:%M'), "messages": messages_list
-    }
-    save_to_archive(archive_entry)
-    if channel_id in ticket_data_cache: del ticket_data_cache[channel_id]
-
-# ===============================
-# 🧩 GENERATOR CAPTCHA (PIL)
-# ===============================
-
-def generate_captcha_image(text: str) -> io.BytesIO:
-    # Tworzenie ciemnego, cyberpunkowego tła obrazka
-    img = Image.new('RGB', (160, 60), color=(15, 12, 28))
-    d = ImageDraw.Draw(img)
-    
-    # Rysowanie losowych linii zakłócających (anty-bot)
-    for _ in range(5):
-        d.line([(random.randint(0, 160), random.randint(0, 60)), (random.randint(0, 160), random.randint(0, 60))], fill=(88, 101, 242), width=1)
-    
-    # Używamy standardowej czcionki wbudowanej, by nie wymagać plików .ttf na dysku
-    # Wypisywanie znaków z delikatnym przesunięciem
-    for i, char in enumerate(text):
-        d.text((15 + i * 35, 15), char, fill=(0, 242, 254))
-        
-    buf = io.BytesIO()
-    img.save(buf, format='PNG')
-    buf.seek(0)
-    return buf
-
-# ===============================
-# 📊 WIDOKI I ANKIETY INTERAKTYWNE
-# ===============================
-
-class CaptchaSubmitModal(Modal):
-    def __init__(self):
-        super().__init__(title="Weryfikacja Konta")
-        self.code_input = TextInput(label="Wpisz kod z obrazka CAPTCHA", placeholder="Wprowadź 4 znaki...", required=True, min_length=4, max_length=4)
-        self.add_item(self.code_input)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        user_id = interaction.user.id
-        correct_code = captcha_sessions.get(user_id)
-        
-        if not correct_code:
-            await interaction.response.send_message("❌ Sesja weryfikacji wygasła. Spróbuj ponownie na serwerze.", ephemeral=True)
-            return
-            
-        if self.code_input.value.upper() == correct_code:
-            # Szukamy gildii na której użytkownik się weryfikuje
-            for guild in bot_instance.guilds:
-                member = guild.get_member(user_id)
-                if member:
-                    role = utils.get(guild.roles, name="ZWERYFIKOWANY")
-                    if not role:
-                        # Jeśli ranga nie istnieje, spróbujemy ją stworzyć w locie
-                        try: role = await guild.create_role(name="ZWERYFIKOWANY", reason="Automatyczny system weryfikacji.")
-                        except: pass
-                    
-                    if role:
-                        await member.add_roles(role)
-                        del captcha_sessions[user_id]
-                        await interaction.response.send_message("✅ Autoryzacja pomyślna! Otrzymałeś rangę `ZWERYFIKOWANY`.", ephemeral=True)
-                        return
-            await interaction.response.send_message("❌ Wystąpił błąd podczas dodawania rangi. Skontaktuj się z administratorem.", ephemeral=True)
-        else:
-            await interaction.response.send_message("❌ Błędny kod CAPTCHA! Spróbuj ponownie.", ephemeral=True)
-
-class CaptchaDMView(View):
-    def __init__(self): super().__init__(timeout=300)
-    @discord.ui.button(label="🔑 Wpisz Kod", style=discord.ButtonStyle.success, custom_id="submit_captcha_btn")
-    async def submit_captcha(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(CaptchaSubmitModal())
-
-class VerificationSetupView(View):
-    def __init__(self): super().__init__(timeout=None)
-    @discord.ui.button(label="🔐 Rozpocznij Weryfikację", style=discord.ButtonStyle.primary, custom_id="start_verification_btn")
-    async def start_verification(self, interaction: discord.Interaction, button: Button):
-        # Sprawdzamy czy użytkownik ma już rangę
-        role = utils.get(interaction.user.roles, name="ZWERYFIKOWANY")
-        if role:
-            await interaction.response.send_message("ℹ️ Jesteś już zweryfikowany na tym serwerze!", ephemeral=True)
-            return
-            
-        await interaction.response.send_message("📩 Sprawdź swoje wiadomości prywatne (DM) – wysłaliśmy tam kod CAPTCHA.", ephemeral=True)
-        
-        # Generowanie losowego kodu
-        chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # wykluczone mylące znaki typu O, 0, I, 1
-        captcha_code = "".join(random.choice(chars) for _ in range(4))
-        captcha_sessions[interaction.user.id] = captcha_code
-        
-        # Generowanie i wysyłka obrazka
-        img_buf = generate_captcha_image(captcha_code)
-        file = File(fp=img_buf, filename="captcha.png")
-        
-        embed = Embed(
-            title="🔒 Weryfikacja Serwerowa", 
-            description="Przepisz kod z poniższego obrazka klikając zielony przycisk.\nWielkość liter nie ma znaczenia.", 
-            color=0x5865f2
-        )
-        embed.set_image(url="attachment://captcha.png")
-        
-        try:
-            await interaction.user.send(embed=embed, file=file, view=CaptchaDMView())
-        except discord.Forbidden:
-            # Obsługa błędu gdy ktoś ma zablokowane wiadomości prywatne
-            pass
-
-# (Wcześniejsze klasy widoków ticketów bez zmian)
-class TicketSurveyView(View):
-    def __init__(self): super().__init__(timeout=None)
-    async def handle_rating(self, interaction: discord.Interaction, rating: int):
-        await interaction.response.defer(); channel_id = interaction.channel_id; closing_user = interaction.user; guild = interaction.guild
-        if guild: await save_ticket_to_web_archive(channel_id, closing_user, rating, guild)
-        for child in self.children: child.disabled = True
-        try: await interaction.message.edit(content=f"⭐ Dziękujemy za ocenę: **{rating}/5**!", view=self)
-        except: pass
-        await asyncio.sleep(2)
-        try:
-            if guild:
-                tc = guild.get_channel(channel_id)
-                if tc: await tc.delete()
-        except: pass
-
-    @discord.ui.button(label="1 ⭐", style=discord.ButtonStyle.secondary, custom_id="rate_1")
-    async def rate_1(self, interaction: discord.Interaction, button: Button): await self.handle_rating(interaction, 1)
-    @discord.ui.button(label="2 ⭐", style=discord.ButtonStyle.secondary, custom_id="rate_2")
-    async def rate_2(self, interaction: discord.Interaction, button: Button): await self.handle_rating(interaction, 2)
-    @discord.ui.button(label="3 ⭐", style=discord.ButtonStyle.secondary, custom_id="rate_3")
-    async def rate_3(self, interaction: discord.Interaction, button: Button): await self.handle_rating(interaction, 3)
-    @discord.ui.button(label="4 ⭐", style=discord.ButtonStyle.secondary, custom_id="rate_4")
-    async def rate_4(self, interaction: discord.Interaction, button: Button): await self.handle_rating(interaction, 4)
-    @discord.ui.button(label="5 ⭐", style=discord.ButtonStyle.success, custom_id="rate_5")
-    async def rate_5(self, interaction: discord.Interaction, button: Button): await self.handle_rating(interaction, 5)
-
-async def initiate_survey(channel):
-    embed = Embed(title="📊 Zamknięcie zgłoszenia", description="Oceń pracę naszej administracji. Po kliknięciu transkrypcja trafi do panelu WWW.", color=0xffb900)
-    await channel.send(embed=embed, view=TicketSurveyView())
-
-class TicketCreateModal(Modal):
-    def __init__(self):
-        super().__init__(title="Formularz Zgłoszenia")
-        self.subject = TextInput(label="Temat zgłoszenia", placeholder="Np. Błąd konfiguracji...", required=True)
-        self.description = TextInput(label="Opis problemu", style=discord.TextStyle.paragraph, placeholder="Opisz dokładnie sytuację...", required=True)
-        self.add_item(self.subject); self.add_item(self.description)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        guild = interaction.guild; member = interaction.user; channel_name = f"ticket-{member.name.lower()}".replace(" ", "-")
-        if utils.get(guild.text_channels, name=channel_name):
-            await interaction.response.send_message("❌ Masz już aktywny kanał wsparcia!", ephemeral=True)
-            return
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            member: discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True, attach_files=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_channels=True)
-        }
-        ticket_channel = await guild.create_text_channel(name=channel_name, overwrites=overwrites)
-        ticket_data_cache[ticket_channel.id] = {"subject": self.subject.value, "description": self.description.value, "creator_mention": member.mention}
-        embed = Embed(title="🎫 Zgłoszenie Otwarte", color=0x5865f2)
-        embed.add_field(name="Temat", value=self.subject.value)
-        embed.add_field(name="Opis", value=self.description.value, inline=False)
-        await ticket_channel.send(embed=embed, view=TicketActionView())
-        await interaction.response.send_message(f"✅ Utworzono kanał {ticket_channel.mention}", ephemeral=True)
-
-class TicketActionView(View):
-    def __init__(self): super().__init__(timeout=None)
-    @discord.ui.button(label="🔒 Zamknij", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn")
-    async def close_ticket(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_message("Inicjalizacja archiwum...", ephemeral=True)
-        await initiate_survey(interaction.channel)
-
-class TicketSetupView(View):
-    def __init__(self): super().__init__(timeout=None)
-    @discord.ui.button(label="🎫 Otwórz zgłoszenie", style=discord.ButtonStyle.primary, custom_id="open_ticket_btn")
-    async def open_ticket(self, interaction: discord.Interaction, button: Button): await interaction.response.send_modal(TicketCreateModal())
-
-# ===============================
-# 🤖 STARTER SYSTEMU
-# ===============================
-
-intents = Intents.default()
-intents.message_content = True; intents.members = True
-bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
-
-@bot.event
-async def setup_hook():
-    global bot_instance; bot_instance = bot
-    # Rejestracja widoków w celu zachowania ich działania po restarcie bota
-    bot.add_view(TicketSetupView())
-    bot.add_view(TicketActionView())
-    bot.add_view(TicketSurveyView())
-    bot.add_view(VerificationSetupView())
-
-@bot.event
-async def on_ready(): print(f'🤖 System Cyber-Glow & CAPTCHA Weryfikacji aktywny.')
-
-@bot.event
-async def on_message(message):
-    if message.author.bot and message.author != bot.user: return
-    if message.channel.name and message.channel.name.startswith("ticket-"):
-        payload = {
-            "channel_id": str(message.channel.id), "author": message.author.name,
-            "content": message.content, "is_bot": message.author.bot, "time": datetime.now().strftime('%H:%M')
-        }
-        for listener in web_listeners: bot.loop.create_task(listener.put(payload))
-    await bot.process_commands(message)
-
-@bot.command(name="ticket")
-@commands.has_permissions(administrator=True)
-async def send_ticket_panel(ctx):
-    embed = Embed(title="🎫 Centrum Wsparcia", description="Kliknij przycisk, aby otworzyć bezpieczne połączenie z administracją.", color=0x2ed573)
-    await ctx.send(embed=embed, view=TicketSetupView()); await ctx.message.delete()
-
-# Komenda do postawienia panelu weryfikacyjnego
-@bot.command(name="setup-weryfikacja")
-@commands.has_permissions(administrator=True)
-async def send_verification_panel(ctx):
-    embed = Embed(
-        title="🔐 SYSTEM WERYFIKACJI", 
-        description="Aby uzyskać dostęp do pozostałych sekcji serwera, przejdź proces autoryzacji CAPTCHA.\n\nKliknij przycisk poniżej, aby otrzymać unikalny token dostępu.", 
-        color=0x5865f2
-    )
-    await ctx.send(embed=embed, view=VerificationSetupView())
-    await ctx.message.delete()
 
 if __name__ == "__main__":
-    keep_alive()
     TOKEN = os.environ.get("DISCORD_TOKEN")
-    if TOKEN: bot.run(TOKEN)
+    if TOKEN:
+        bot.run(TOKEN)
+    else:
+        print("❌ Krytyczny błąd: Brak zmiennej środowiskowej 'DISCORD_TOKEN'.")
