@@ -1,14 +1,15 @@
-import discord
-from discord import app_commands, Intents
 import os
 import json
 import asyncio
 import threading
 from typing import List
+
+import discord
+from discord import app_commands, Intents
 from flask import Flask, render_template_string, request, redirect, session, jsonify
 
 # ===============================
-# KONFIGURACJA GLOBALNA
+# KONFIGURACJA
 # ===============================
 
 ADMIN_IDS: List[int] = [652507356105539585, 550959315700154368, 590215623259193371]
@@ -21,6 +22,10 @@ app.secret_key = os.environ.get("FLASK_SECRET", "super-tajny-klucz-kubusiowo")
 current_status_text = "Zarządzanie serwerem"
 ticket_data_cache = {}
 captcha_sessions = {}
+
+# ===============================
+# PLIKI
+# ===============================
 
 def load_archive():
     if os.path.exists(ARCHIVE_FILE):
@@ -80,7 +85,7 @@ async def change_status(interaction: discord.Interaction, tekst: str):
     global current_status_text
     current_status_text = tekst
     await bot.change_presence(activity=discord.Game(name=tekst))
-    await interaction.response.send_message(f"✅ Status bota został zmieniony na: `Playing {tekst}`")
+    await interaction.response.send_message(f"✅ Status bota został zmieniony na: `Playing {tekst}`", ephemeral=True)
 
 @bot.tree.command(name="clear", description="Czyści określoną ilość wiadomości na kanale")
 @app_commands.describe(ilosc="Ilość wiadomości do usunięcia")
@@ -90,13 +95,25 @@ async def clear_messages(interaction: discord.Interaction, ilosc: int):
         return
 
     await interaction.response.defer(ephemeral=True)
-    deleted = await interaction.channel.purge(limit=ilosc)
-    await interaction.followup.send(f"🗑️ Usunięto {len(deleted)} wiadomości.")
+    try:
+        deleted = await interaction.channel.purge(limit=ilosc)
+        await interaction.followup.send(f"🗑️ Usunięto {len(deleted)} wiadomości.")
+    except Exception as e:
+        await interaction.followup.send(f"❌ Błąd podczas czyszczenia: {e}")
+
+@bot.tree.command(name="ping", description="Test odpowiedzi bota")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message(f"🏓 Pong! `{round(bot.latency * 1000)}ms`", ephemeral=True)
 
 @bot.event
 async def on_ready():
     print(f"⚡ Zalogowano jako {bot.user} | Gotowy na komendy /")
     await bot.change_presence(activity=discord.Game(name=current_status_text))
+    try:
+        synced = await bot.tree.sync()
+        print(f"✅ Zsynchronizowano {len(synced)} komend")
+    except Exception as e:
+        print(f"❌ Błąd sync: {e}")
 
 # ===============================
 # STYLE HTML
@@ -201,13 +218,6 @@ SHARED_STYLE = """
         border-radius: 20px;
         backdrop-filter: blur(20px);
         box-shadow: 0 20px 45px rgba(0, 0, 0, 0.5);
-        transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
-    }
-
-    .glass-box:hover {
-        border-color: rgba(88, 101, 242, 0.4);
-        box-shadow: 0 25px 55px rgba(88, 101, 242, 0.15);
-        transform: translateY(-3px);
     }
 
     .glow-text {
@@ -221,15 +231,6 @@ SHARED_STYLE = """
         border: none;
         font-weight: 600;
         border-radius: 10px;
-        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-        box-shadow: 0 4px 20px rgba(88, 101, 242, 0.4);
-    }
-
-    .btn-glow:hover {
-        background: linear-gradient(135deg, #5865f2, #4752c4);
-        transform: translateY(-2px);
-        box-shadow: 0 6px 25px rgba(88, 101, 242, 0.7);
-        color: white;
     }
 
     .btn-danger-glow {
@@ -238,29 +239,6 @@ SHARED_STYLE = """
         border: none;
         font-weight: 600;
         border-radius: 10px;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 15px rgba(255, 0, 85, 0.3);
-    }
-
-    .btn-danger-glow:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 25px rgba(255, 0, 85, 0.6);
-        color: white;
-    }
-
-    .btn-warning-glow {
-        background: linear-gradient(135deg, #ffa502, #ff7f50);
-        color: white;
-        border: none;
-        font-weight: 600;
-        border-radius: 10px;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 15px rgba(255, 165, 2, 0.3);
-    }
-
-    .btn-warning-glow:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 25px rgba(255, 165, 2, 0.6);
     }
 
     .custom-input, .custom-select select {
@@ -268,107 +246,47 @@ SHARED_STYLE = """
         border: 1px solid rgba(255, 255, 255, 0.08) !important;
         color: #fff !important;
         border-radius: 10px !important;
-        transition: all 0.3s ease;
-    }
-
-    .custom-input:focus, .custom-select select:focus {
-        border-color: var(--primary-glow) !important;
-        box-shadow: 0 0 15px rgba(88, 101, 242, 0.3) !important;
     }
 
     .tab-content { display: none; }
-    .tab-content.is-active {
-        display: block;
-        animation: cyberSlideIn 0.5s cubic-bezier(0.19, 1, 0.22, 1) forwards;
-    }
-
-    @keyframes cyberSlideIn {
-        from { opacity: 0; transform: translateY(25px) scale(0.97); filter: blur(6px); }
-        to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-    }
+    .tab-content.is-active { display: block; }
 
     .live-pulse-dot {
         width: 10px; height: 10px; background: #00ffa3; border-radius: 50%; display: inline-block;
-        box-shadow: 0 0 10px #00ffa3, 0 0 20px #00ffa3;
-        animation: pulseDot 1.8s infinite;
         margin-right: 8px;
-    }
-
-    @keyframes pulseDot {
-        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 255, 163, 0.7); }
-        70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(0, 255, 163, 0); }
-        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 255, 163, 0); }
     }
 
     .chat-container { display: flex; height: 650px; gap: 25px; }
     .chat-channels-list { width: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-
-    .chat-channel-item {
-        padding: 14px; border-radius: 12px; cursor: pointer;
-        background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.04);
-        transition: all 0.3s ease;
-    }
-
-    .chat-channel-item:hover, .chat-channel-item.active {
-        background: linear-gradient(135deg, rgba(88,101,242,0.25), rgba(0,242,254,0.05));
-        border-color: var(--primary-glow); color: #fff;
-        transform: scale(1.02);
-        box-shadow: 0 10px 20px rgba(0,0,0,0.2);
-    }
+    .chat-channel-item { padding: 14px; border-radius: 12px; cursor: pointer; background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.04); }
+    .chat-channel-item.active { background: rgba(88,101,242,0.25); border-color: var(--primary-glow); color: #fff; }
 
     .chat-window { flex: 1; display: flex; flex-direction: column; height: 100%; }
-    .chat-messages {
-        flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px;
-        background: rgba(0,0,0,0.3); border-radius: 16px; border: 1px solid rgba(255,255,255,0.04);
-        scroll-behavior: smooth;
-    }
-
-    .chat-msg-row {
-        display: flex; flex-direction: column; max-width: 70%; padding: 10px 15px;
-        border-radius: 14px; animation: msgFadeIn 0.3s ease-out forwards;
-    }
-
-    @keyframes msgFadeIn {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-
-    .chat-msg-row.bot { background: rgba(88, 101, 242, 0.18); border: 1px solid rgba(88, 101, 242, 0.3); align-self: flex-end; border-bottom-right-radius: 2px; }
-    .chat-msg-row.user { background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); align-self: flex-start; border-bottom-left-radius: 2px; }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; background: rgba(0,0,0,0.3); border-radius: 16px; }
+    .chat-msg-row { display: flex; flex-direction: column; max-width: 70%; padding: 10px 15px; border-radius: 14px; }
+    .chat-msg-row.bot { background: rgba(88, 101, 242, 0.18); align-self: flex-end; }
+    .chat-msg-row.user { background: rgba(255, 255, 255, 0.04); align-self: flex-start; }
     .chat-msg-author { font-size: 0.8rem; font-weight: 600; color: #a0aec0; margin-bottom: 4px; }
     .chat-msg-time { font-size: 0.65rem; color: #5a6578; align-self: flex-end; margin-top: 6px; }
 
     .user-split { display: flex; gap: 25px; height: 700px; }
     .user-list-side { width: 320px; display: flex; flex-direction: column; gap: 12px; }
-    .user-scroll-area { flex: 1; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.04); }
+    .user-scroll-area { flex: 1; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 16px; }
+    .user-list-item { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 10px; cursor: pointer; margin-bottom: 8px; }
+    .user-list-item.active { background: rgba(88, 101, 242, 0.15); }
 
-    .user-list-item {
-        display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 10px;
-        cursor: pointer; margin-bottom: 8px; background: rgba(255,255,255,0.01);
-        border: 1px solid transparent; transition: all 0.25s ease;
-    }
-
-    .user-list-item:hover, .user-list-item.active {
-        background: rgba(88, 101, 242, 0.15); border-color: rgba(88, 101, 242, 0.3);
-        color: #fff; transform: translateX(4px);
-    }
-
-    .user-list-item img { width: 36px; height: 36px; border-radius: 50%; box-shadow: 0 0 10px rgba(0,0,0,0.5); }
+    .user-list-item img { width: 36px; height: 36px; border-radius: 50%; }
     .user-profile-side { flex: 1; background: rgba(255,255,255,0.015); border: 1px solid rgba(255,255,255,0.04); padding: 30px; border-radius: 20px; overflow-y: auto; }
 
     .role-tag {
         display: inline-block; background: rgba(88,101,242,0.12); border: 1px solid rgba(88,101,242,0.4);
         color: #babcff; padding: 3px 10px; border-radius: 6px; font-size: 0.78rem; margin: 4px;
-        transition: all 0.2s ease;
     }
-
-    .role-tag:hover { background: rgba(88,101,242,0.3); transform: scale(1.05); }
 
     .ticket-badge, .archive-item {
         background: rgba(255, 255, 255, 0.01); border: 1px solid rgba(255, 255, 255, 0.04);
         padding: 16px 24px; border-radius: 14px; margin-bottom: 14px;
         display: flex; justify-content: space-between; align-items: center;
-        transition: all 0.3s ease;
     }
 
     .chat-input-area { display: flex; gap: 10px; margin-top: 15px; }
@@ -377,11 +295,10 @@ SHARED_STYLE = """
 """
 
 # ===============================
-# HTML TEMPLATE
+# HTML
 # ===============================
 
-HTML_TEMPLATE = """
-<!DOCTYPE html>
+HTML_TEMPLATE = """<!DOCTYPE html>
 <html>
 <head>
     <title>Kubusiowo - Panel VIP</title>
@@ -404,22 +321,22 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
                 <ul class="menu-list">
-                    <li><a href="#" class="is-active" onmouseenter="playHoverSound()" onclick="switchTab(event, 'status-tab')">⚙️ Status bota</a></li>
-                    <li><a href="#" onmouseenter="playHoverSound()" onclick="switchTab(event, 'management-tab')">🛠️ Stwórz Kanał</a></li>
-                    <li><a href="#" onmouseenter="playHoverSound()" onclick="switchTab(event, 'users-tab')">👥 Baza Użytkowników</a></li>
-                    <li><a href="#" onmouseenter="playHoverSound()" onclick="switchTab(event, 'tickets-tab')">🎫 Aktywne Tickety</a></li>
-                    <li><a href="#" onmouseenter="playHoverSound()" onclick="switchTab(event, 'chat-tab')">💬 Czat Ticketów</a></li>
-                    <li><a href="#" onmouseenter="playHoverSound()" onclick="switchTab(event, 'archive-tab')">📜 Archiwum Ticketów</a></li>
+                    <li><a href="#" class="is-active" onclick="switchTab(event, 'status-tab')">⚙️ Status bota</a></li>
+                    <li><a href="#" onclick="switchTab(event, 'management-tab')">🛠️ Stwórz Kanał</a></li>
+                    <li><a href="#" onclick="switchTab(event, 'users-tab')">👥 Baza Użytkowników</a></li>
+                    <li><a href="#" onclick="switchTab(event, 'tickets-tab')">🎫 Aktywne Tickety</a></li>
+                    <li><a href="#" onclick="switchTab(event, 'chat-tab')">💬 Czat Ticketów</a></li>
+                    <li><a href="#" onclick="switchTab(event, 'archive-tab')">📜 Archiwum Ticketów</a></li>
                 </ul>
             </div>
-            <div><a href="/logout" class="button btn-danger-glow is-fullwidth py-4" onmouseenter="playHoverSound()" onclick="playClickSound()">Wyloguj system</a></div>
+            <div><a href="/logout" class="button btn-danger-glow is-fullwidth py-4">Wyloguj system</a></div>
         </aside>
 
         <main class="main-content">
             <div id="status-tab" class="tab-content is-active">
                 <div class="box glass-box p-6" style="max-width: 600px;">
                     <h2 class="title is-3 has-text-white mb-4">Ustawienia Aktywności Bota</h2>
-                    <form method="POST" action="/update-status" onclick="playClickSound()">
+                    <form method="POST" action="/update-status">
                         <div class="field mb-5">
                             <label class="label has-text-grey-light is-size-7 mb-2">Treść statusu gry (Playing...)</label>
                             <input class="input custom-input py-4" type="text" name="status_text" value="{{ current_status }}">
@@ -432,7 +349,7 @@ HTML_TEMPLATE = """
             <div id="management-tab" class="tab-content">
                 <div class="box glass-box p-5" style="max-width: 500px;">
                     <h3 class="title is-4 has-text-white mb-4">📁 Kreator Kanałów Serwerowych</h3>
-                    <form method="POST" action="/create-channel" onclick="playClickSound()">
+                    <form method="POST" action="/create-channel">
                         <div class="field mb-3"><input class="input custom-input" type="text" name="channel_name" required placeholder="Nazwa nowego kanału..."></div>
                         <div class="field mb-5"><div class="select is-fullwidth custom-select"><select name="channel_type"><option value="text">Tekstowy</option><option value="voice">Głosowy</option></select></div></div>
                         <button type="submit" class="button btn-glow is-fullwidth py-4">Wygeneruj kanał</button>
@@ -449,7 +366,7 @@ HTML_TEMPLATE = """
                             <div id="user-scroll-container" class="user-scroll-area"><p class="has-text-grey is-size-7 p-3">Inicjalizacja rekordów...</p></div>
                         </div>
                         <div id="user-profile" class="user-profile-side">
-                            <p class="has-text-grey has-text-centered" style="margin-top: 200px;">Wybierz osobę z bazy danych, aby otworzyć profil cyber-karty.</p>
+                            <p class="has-text-grey has-text-centered" style="margin-top: 200px;">Wybierz osobę z bazy danych, aby otworzyć profil.</p>
                         </div>
                     </div>
                 </div>
@@ -489,191 +406,29 @@ HTML_TEMPLATE = """
         </main>
     </div>
 
-    <script>
-        const hoverAudio = new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav');
-        const clickAudio = new Audio('https://assets.mixkit.co/active_storage/sfx/2753/2753-84.wav');
-        hoverAudio.volume = 0.15; clickAudio.volume = 0.25;
+<script>
+function switchTab(evt, tabId) {
+    document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("is-active"));
+    document.querySelectorAll(".menu-list a").forEach(el => el.classList.remove("is-active"));
+    document.getElementById(tabId).classList.add("is-active");
+    evt.currentTarget.classList.add("is-active");
+    if (tabId === 'tickets-tab') fetchTickets();
+    if (tabId === 'chat-tab') fetchChatChannels();
+    if (tabId === 'users-tab') fetchUsers();
+    if (tabId === 'archive-tab') fetchArchive();
+}
+function fetchTickets() { fetch('/api/tickets').then(r=>r.json()).then(data=>{ document.getElementById('tickets-list').innerHTML = data.length ? data.map(t=>`<div class="ticket-badge"><strong>#${t.name}</strong></div>`).join('') : '<p class="has-text-grey-light">Brak otwartych procesów zgłoszeniowych.</p>'; }); }
+function fetchChatChannels() { fetch('/api/tickets').then(r=>r.json()).then(data=>{ document.getElementById('chat-channels').innerHTML = data.length ? data.map(t=>`<div class="chat-channel-item" onclick="selectChatChannel(${t.id})">#${t.name}</div>`).join('') : '<p class="has-text-grey is-size-7">Brak otwartych kanałów.</p>'; }); }
+function selectChatChannel(channelId) { document.getElementById('chat-input-msg').disabled = false; document.getElementById('chat-send-btn').disabled = false; }
+function sendWebMessage() {}
+let allUsersData = [];
+function fetchUsers() { fetch('/api/users').then(r=>r.json()).then(data=>{ allUsersData = data; renderUsersList(data); }); }
+function renderUsersList(users) { document.getElementById('user-scroll-container').innerHTML = users.length ? users.map(u=>`<div class="user-list-item" onclick="selectUser(${u.id})"><img src="${u.avatar}"><span>${u.name}</span></div>`).join('') : '<p class="has-text-grey is-size-7 p-2">Brak użytkowników.</p>'; }
+function filterUsers() { const q = document.getElementById('user-search-input').value.toLowerCase().trim(); renderUsersList(allUsersData.filter(u => u.name.toLowerCase().includes(q))); }
+function selectUser(userId) { fetch(`/api/users/${userId}`).then(r=>r.json()).then(u=>{ document.getElementById('user-profile').innerHTML = u.error ? `<p class="has-text-danger">${u.error}</p>` : `<h3 class="title is-4 has-text-white">${u.name}</h3><p>ID: ${u.id}</p>`; }); }
+function fetchArchive() { fetch('/api/archive').then(r=>r.json()).then(data=>{ document.getElementById('archive-list').innerHTML = data.length ? data.map(item=>`<div class="archive-item"><div><strong>#${item.channel_name}</strong></div></div>`).join('') : '<p class="has-text-grey">Archiwum systemowe jest puste.</p>'; }); }
+</script>
 
-        function playHoverSound() { hoverAudio.currentTime = 0; hoverAudio.play().catch(() => {}); }
-        function playClickSound() { clickAudio.currentTime = 0; clickAudio.play().catch(() => {}); }
-
-        const canvas = document.getElementById('space-canvas');
-        const ctx = canvas.getContext('2d');
-        let stars = []; let meteors = [];
-
-        function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
-        window.addEventListener('resize', resizeCanvas); resizeCanvas();
-
-        for (let i = 0; i < 120; i++) {
-            stars.push({
-                x: Math.random() * canvas.width, y: Math.random() * canvas.height,
-                size: Math.random() * 1.8, alpha: Math.random(), speed: 0.2 + Math.random() * 0.4
-            });
-        }
-
-        function spawnMeteor() {
-            if (meteors.length < 3 && Math.random() < 0.015) {
-                meteors.push({
-                    x: Math.random() * canvas.width * 0.8, y: -20,
-                    length: 40 + Math.random() * 80, speedX: 4 + Math.random() * 6, speedY: 4 + Math.random() * 6, alpha: 1
-                });
-            }
-        }
-
-        function drawSpace() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            stars.forEach(star => {
-                ctx.fillStyle = `rgba(255, 255, 255, ${star.alpha})`;
-                ctx.beginPath(); ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2); ctx.fill();
-                star.y += star.speed;
-                if (star.y > canvas.height) { star.y = 0; star.x = Math.random() * canvas.width; }
-            });
-            spawnMeteor();
-            meteors.forEach((m, idx) => {
-                let gradient = ctx.createLinearGradient(m.x, m.y, m.x + m.length, m.y + m.length);
-                gradient.addColorStop(0, `rgba(0, 242, 254, ${m.alpha})`);
-                gradient.addColorStop(0.5, `rgba(88, 101, 242, ${m.alpha * 0.5})`);
-                gradient.addColorStop(1, 'rgba(0,0,0,0)');
-                ctx.strokeStyle = gradient; ctx.lineWidth = 2;
-                ctx.beginPath(); ctx.moveTo(m.x, m.y); ctx.lineTo(m.x - m.length, m.y - m.length); ctx.stroke();
-                m.x += m.speedX; m.y += m.speedY; m.alpha -= 0.012;
-                if (m.alpha <= 0 || m.x > canvas.width || m.y > canvas.height) { meteors.splice(idx, 1); }
-            });
-            requestAnimationFrame(drawSpace);
-        }
-        drawSpace();
-
-        let currentActiveChannelId = null; let selectedUserId = null; let allUsersData = [];
-
-        function switchTab(evt, tabId) {
-            playClickSound();
-            document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("is-active"));
-            document.querySelectorAll(".menu-list a").forEach(el => el.classList.remove("is-active"));
-            document.getElementById(tabId).classList.add("is-active");
-            evt.currentTarget.classList.add("is-active");
-            if (tabId === 'tickets-tab') fetchTickets();
-            if (tabId === 'chat-tab') fetchChatChannels();
-            if (tabId === 'users-tab') fetchUsers();
-            if (tabId === 'archive-tab') fetchArchive();
-        }
-
-        function fetchTickets() {
-            const listDiv = document.getElementById('tickets-list');
-            fetch('/api/tickets').then(res => res.json()).then(data => {
-                listDiv.innerHTML = '';
-                if (data.length === 0) { listDiv.innerHTML = '<p class="has-text-grey-light">Brak otwartych procesów zgłoszeniowych.</p>'; return; }
-                data.forEach(t => {
-                    const div = document.createElement('div'); div.className = 'ticket-badge';
-                    div.innerHTML = `<div><strong style="color:#fff; font-size:1.1rem;">#${t.name}</strong></div>
-                    <form method="POST" action="/close-ticket-dash" style="margin:0;"><input type="hidden" name="channel_id" value="${t.id}"><button type="submit" class="button is-small btn-danger-glow px-5" onclick="playClickSound()">Wymuś Zamknięcie</button></form>`;
-                    listDiv.appendChild(div);
-                });
-            });
-        }
-
-        function fetchChatChannels() {
-            const channelsDiv = document.getElementById('chat-channels');
-            fetch('/api/tickets').then(res => res.json()).then(data => {
-                channelsDiv.innerHTML = '';
-                if(data.length === 0){ channelsDiv.innerHTML = '<p class="has-text-grey is-size-7">Brak otwartych kanałów.</p>'; return; }
-                data.forEach(t => {
-                    const div = document.createElement('div');
-                    div.className = `chat-channel-item ${currentActiveChannelId === t.id ? 'active' : ''}`;
-                    div.innerText = `#${t.name}`; div.onmouseenter = playHoverSound;
-                    div.onclick = () => { playClickSound(); selectChatChannel(t.id); };
-                    channelsDiv.appendChild(div);
-                });
-            });
-        }
-
-        function selectChatChannel(channelId) {
-            currentActiveChannelId = channelId;
-            document.getElementById('chat-input-msg').disabled = false;
-            document.getElementById('chat-send-btn').disabled = false;
-            const messagesDiv = document.getElementById('chat-messages');
-            messagesDiv.innerHTML = '<p class="has-text-grey">Pobieranie strumienia historii...</p>';
-            fetch(`/api/chat/history/${channelId}`).then(res => res.json()).then(messages => {
-                messagesDiv.innerHTML = ''; messages.forEach(msg => appendMessageDOM(msg));
-            });
-        }
-
-        function appendMessageDOM(msg) {
-            const messagesDiv = document.getElementById('chat-messages');
-            const row = document.createElement('div');
-            row.className = `chat-msg-row ${msg.is_bot ? 'bot' : 'user'}`;
-            row.innerHTML = `<div class="chat-msg-author">${msg.author}</div><div>${msg.content}</div><div class="chat-msg-time">${msg.time}</div>`;
-            messagesDiv.appendChild(row); messagesDiv.scrollTop = messagesDiv.scrollHeight;
-        }
-
-        function sendWebMessage() {
-            playClickSound();
-            const input = document.getElementById('chat-input-msg'); const content = input.value.trim();
-            if(!content || !currentActiveChannelId) return;
-            fetch('/api/chat/send', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ channel_id: currentActiveChannelId, message: content })
-            }).then(() => { input.value = ''; selectChatChannel(currentActiveChannelId); });
-        }
-
-        function fetchUsers() { fetch('/api/users').then(res => res.json()).then(data => { allUsersData = data; renderUsersList(allUsersData); }); }
-
-        function renderUsersList(users) {
-            const container = document.getElementById('user-scroll-container'); container.innerHTML = '';
-            if(users.length === 0) { container.innerHTML = '<p class="has-text-grey is-size-7 p-2">Nie odnaleziono kryteriów.</p>'; return; }
-            users.forEach(u => {
-                const div = document.createElement('div');
-                div.className = `user-list-item ${selectedUserId === u.id ? 'active' : ''}`;
-                div.innerHTML = `<img src="${u.avatar}" alt="avatar"> <span>${u.name}</span>`;
-                div.onmouseenter = playHoverSound; div.onclick = () => { playClickSound(); selectUser(u.id); };
-                container.appendChild(div);
-            });
-        }
-
-        function filterUsers() {
-            const query = document.getElementById('user-search-input').value.toLowerCase().trim();
-            const filtered = allUsersData.filter(u => u.name.toLowerCase().includes(query));
-            renderUsersList(filtered);
-        }
-
-        function selectUser(userId) {
-            selectedUserId = userId; const profileDiv = document.getElementById('user-profile');
-            profileDiv.innerHTML = '<p class="has-text-grey">Wczytywanie architektury profilu...</p>';
-            fetch(`/api/users/${userId}`).then(res => res.json()).then(u => {
-                if(u.error) { profileDiv.innerHTML = `<p class='has-text-danger'>${u.error}</p>`; return; }
-                let rolesHtml = u.roles.map(r => `<span class="role-tag">${r}</span>`).join('');
-                let dropdownOptions = u.server_all_roles.map(rName => `<option value="${rName}">${rName}</option>`).join('');
-                profileDiv.innerHTML = `
-                    <div class="columns is-mobile is-vcentered mb-4">
-                        <div class="column is-narrow"><img src="${u.avatar}" style="width:80px; height:80px; border-radius:50%; border:2px solid var(--primary-glow); box-shadow: 0 0 15px var(--primary-glow);"></div>
-                        <div class="column"><h3 class="title is-4 has-text-white mb-1 glow-text">${u.name}</h3><p class="is-size-7 has-text-grey-light">ID: ${u.id}</p></div>
-                    </div>
-                    <div class="is-size-7 mb-4 p-3" style="background:rgba(0,0,0,0.15); border-radius:10px; position:relative;">
-                        <p>📅 Rejestracja: <span class="has-text-white">${u.created_at}</span></p>
-                    </div>
-                    <p class="label has-text-grey-light mb-2 is-size-7">AKTYWNE RANGI:</p>
-                    <div class="mb-4">${rolesHtml || '<span class="has-text-grey-light is-size-7">Brak uprawnień</span>'}</div>
-                    <div class="box mb-4 p-4" style="background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.05); border-radius:12px;">
-                        <div class="field has-addons">
-                            <div class="control is-expanded"><div class="select is-small is-fullwidth custom-select"><select id="role-dropdown">${dropdownOptions}</select></div></div>
-                            <div class="control"><button class="button is-small btn-glow px-4" onclick="modifyUserRole('add')">Nadaj</button></div>
-                        </div>
-                    </div>`;
-            });
-        }
-
-        function fetchArchive() {
-            const archiveDiv = document.getElementById('archive-list');
-            fetch('/api/archive').then(res => res.json()).then(data => {
-                archiveDiv.innerHTML = '';
-                if(data.length === 0) { archiveDiv.innerHTML = '<p class="has-text-grey">Archiwum systemowe jest puste.</p>'; return; }
-                data.forEach((item) => {
-                    const div = document.createElement('div'); div.className = 'archive-item';
-                    div.innerHTML = `<div><span class="has-text-grey-light">[${item.closed_at}]</span> <strong style="color: #fff;">#${item.channel_name}</strong> - Zamknięty przez: ${item.closed_by}</div>`;
-                    archiveDiv.appendChild(div);
-                });
-            });
-        }
-    </script>
 </body>
 </html>
 """
@@ -686,9 +441,7 @@ LOGIN_TEMPLATE = """
     <meta charset="utf-8">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
     {{ SHARED_STYLE | safe }}
-    <style>
-        .login-box { max-width: 450px; margin: 15vh auto; padding: 3rem; }
-    </style>
+    <style>.login-box { max-width: 450px; margin: 15vh auto; padding: 3rem; }</style>
 </head>
 <body>
     <div class="animated-bg"></div>
@@ -708,130 +461,115 @@ LOGIN_TEMPLATE = """
 """
 
 # ===============================
-# FLASK
+# FLASK ROUTES
 # ===============================
 
 @app.before_request
 def require_login():
-    if request.path in ["/login", "/logout"] or request.path.startswith("/api/"):
+    if request.path in ['/login', '/logout'] or request.path.startswith('/api/'):
         return
-    if "authorized" not in session:
-        return redirect("/login")
+    if 'authorized' not in session:
+        return redirect('/login')
 
-@app.route("/login", methods=["GET", "POST"])
+@app.route('/login', methods=['GET', 'POST'])
 def login():
     error = None
-    if request.method == "POST":
-        pwd = request.form.get("password")
+    if request.method == 'POST':
+        pwd = request.form.get('password')
         if pwd == DASHBOARD_PASSWORD:
-            session["authorized"] = True
-            return redirect("/")
-        error = "Błędny klucz kryptograficzny dostępu."
+            session['authorized'] = True
+            return redirect('/')
+        error = "Błędny klucz dostępu."
     return render_template_string(LOGIN_TEMPLATE, SHARED_STYLE=SHARED_STYLE, error=error)
 
-@app.route("/logout")
+@app.route('/logout')
 def logout():
-    session.pop("authorized", None)
-    return redirect("/login")
+    session.pop('authorized', None)
+    return redirect('/login')
 
-@app.route("/")
+@app.route('/')
 def index():
     return render_template_string(HTML_TEMPLATE, SHARED_STYLE=SHARED_STYLE, current_status=current_status_text)
 
-@app.route("/update-status", methods=["POST"])
+@app.route('/update-status', methods=['POST'])
 def update_status():
     global current_status_text
-    status_text = request.form.get("status_text", "Zarządzanie serwerem")
+    status_text = request.form.get('status_text', 'Zarządzanie serwerem')
     current_status_text = status_text
-
     if bot.loop and bot.is_ready():
-        asyncio.run_coroutine_threadsafe(
-            bot.change_presence(activity=discord.Game(name=status_text)),
-            bot.loop
-        )
-    return redirect("/")
+        asyncio.run_coroutine_threadsafe(bot.change_presence(activity=discord.Game(name=status_text)), bot.loop)
+    return redirect('/')
 
-@app.route("/create-channel", methods=["POST"])
+@app.route('/create-channel', methods=['POST'])
 def create_channel():
-    ch_name = request.form.get("channel_name")
-    ch_type = request.form.get("channel_type")
+    ch_name = request.form.get('channel_name')
+    ch_type = request.form.get('channel_type')
 
     async def _create():
         if bot.guilds:
             guild = bot.guilds[0]
-            if ch_type == "text":
+            if ch_type == 'text':
                 await guild.create_text_channel(name=ch_name)
-            elif ch_type == "voice":
+            elif ch_type == 'voice':
                 await guild.create_voice_channel(name=ch_name)
 
     if bot.loop and bot.is_ready():
         asyncio.run_coroutine_threadsafe(_create(), bot.loop)
+    return redirect('/')
 
-    return redirect("/")
-
-@app.route("/close-ticket-dash", methods=["POST"])
+@app.route('/close-ticket-dash', methods=['POST'])
 def close_ticket_dash():
-    return redirect("/")
+    return redirect('/')
 
-# ===============================
-# API
-# ===============================
-
-@app.route("/api/tickets")
+@app.route('/api/tickets')
 def api_tickets():
     return jsonify([])
 
-@app.route("/api/chat/history/<int:channel_id>")
+@app.route('/api/chat/history/<int:channel_id>')
 def api_chat_history(channel_id):
     return jsonify([])
 
-@app.route("/api/chat/send", methods=["POST"])
+@app.route('/api/chat/send', methods=['POST'])
 def api_chat_send():
     return jsonify({"success": True})
 
-@app.route("/api/users")
+@app.route('/api/users')
 def api_users():
     users_list = []
     if bot.guilds:
         guild = bot.guilds[0]
         for m in list(guild.members)[:50]:
-            users_list.append({
-                "id": str(m.id),
-                "name": m.name,
-                "avatar": str(m.display_avatar.url)
-            })
+            users_list.append({"id": str(m.id), "name": m.name, "avatar": str(m.display_avatar.url)})
     return jsonify(users_list)
 
-@app.route("/api/users/<int:user_id>")
+@app.route('/api/users/<int:user_id>')
 def api_user_detail(user_id):
     if not bot.guilds:
         return jsonify({"error": "Brak bazy danych serwera."})
-
     guild = bot.guilds[0]
     member = guild.get_member(user_id)
     if not member:
         return jsonify({"error": "Użytkownik nieaktywny w sieci serwera."})
-
     return jsonify({
         "id": str(member.id),
         "name": member.name,
         "avatar": str(member.display_avatar.url),
-        "created_at": member.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        "created_at": member.created_at.strftime('%Y-%m-%d %H:%M:%S'),
         "roles": [r.name for r in member.roles if r.name != "@everyone"],
         "server_all_roles": [r.name for r in guild.roles if r.name != "@everyone"]
     })
 
-@app.route("/api/archive")
+@app.route('/api/archive')
 def api_archive():
     return jsonify(load_archive())
 
 # ===============================
-# FLASK WĄTEK
+# FLASK START
 # ===============================
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port, use_reloader=False, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 # ===============================
 # START
